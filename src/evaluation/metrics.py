@@ -107,9 +107,22 @@ class WeightedMetrics:
     def weighted_mape(y_true: np.ndarray, y_pred: np.ndarray,
                       weights: np.ndarray, epsilon: float = 1.0) -> float:
         """
-        Compute weighted Mean Absolute Percentage Error.
+        DEPRECATED: Use weighted_wape or weighted_nmae instead.
         
-        MAPE_w = sum(w_i * |y_i - y_hat_i| / max(|y_i|, epsilon)) / sum(w_i) * 100
+        MAPE explodes for small denominators (low-HDD/low-use cases).
+        """
+        # Return NaN to signal this metric should not be used
+        return np.nan
+    
+    @staticmethod
+    def weighted_wape(y_true: np.ndarray, y_pred: np.ndarray,
+                      weights: np.ndarray) -> float:
+        """
+        Compute Weighted Absolute Percentage Error (WAPE).
+        
+        WAPE = sum(w_i * |y_i - y_hat_i|) / sum(w_i * |y_i|) * 100
+        
+        More stable than MAPE because it uses aggregate weighted sums.
         """
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
@@ -123,11 +136,43 @@ class WeightedMetrics:
         if len(y_true) == 0:
             return np.nan
         
-        # Avoid division by zero
-        denom = np.maximum(np.abs(y_true), epsilon)
-        pct_errors = np.abs(y_true - y_pred) / denom
+        weighted_abs_error = np.sum(weights * np.abs(y_true - y_pred))
+        weighted_abs_actual = np.sum(weights * np.abs(y_true))
         
-        return np.sum(weights * pct_errors) / np.sum(weights) * 100
+        if weighted_abs_actual == 0:
+            return np.nan
+        
+        return weighted_abs_error / weighted_abs_actual * 100
+    
+    @staticmethod
+    def weighted_nmae(y_true: np.ndarray, y_pred: np.ndarray,
+                      weights: np.ndarray) -> float:
+        """
+        Compute Normalized MAE (nMAE).
+        
+        nMAE = MAE / weighted_mean(y_true) * 100
+        
+        Scale-free metric that doesn't explode for small values.
+        """
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+        weights = np.asarray(weights)
+        
+        valid = ~(np.isnan(y_true) | np.isnan(y_pred) | np.isnan(weights))
+        y_true = y_true[valid]
+        y_pred = y_pred[valid]
+        weights = weights[valid]
+        
+        if len(y_true) == 0:
+            return np.nan
+        
+        weighted_mae = np.sum(weights * np.abs(y_true - y_pred)) / np.sum(weights)
+        weighted_mean = np.sum(weights * y_true) / np.sum(weights)
+        
+        if weighted_mean == 0:
+            return np.nan
+        
+        return weighted_mae / weighted_mean * 100
     
     @staticmethod
     def weighted_bias(y_true: np.ndarray, y_pred: np.ndarray,
@@ -170,12 +215,16 @@ class WeightedMetrics:
         -------
         dict
             Dictionary of metric name -> value
+            
+        Note: MAPE is excluded (unstable for small denominators).
+        WAPE and nMAE are used as stable alternatives.
         """
         return {
             'weighted_rmse': self.weighted_rmse(y_true, y_pred, weights),
             'weighted_mae': self.weighted_mae(y_true, y_pred, weights),
             'weighted_r2': self.weighted_r2(y_true, y_pred, weights),
-            'weighted_mape': self.weighted_mape(y_true, y_pred, weights),
+            'weighted_wape': self.weighted_wape(y_true, y_pred, weights),
+            'weighted_nmae': self.weighted_nmae(y_true, y_pred, weights),
             'weighted_bias': self.weighted_bias(y_true, y_pred, weights),
             'n_samples': len(y_true[~np.isnan(y_true)])
         }

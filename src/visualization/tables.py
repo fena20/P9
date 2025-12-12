@@ -198,7 +198,8 @@ def create_uncertainty_table(uncertainty_df: pd.DataFrame,
     """
     Create uncertainty table with proper formatting.
     
-    Avoids MAPE (unstable). Uses WAPE or nMAE instead.
+    EXCLUDES MAPE (unstable for small denominators).
+    Uses WAPE and nMAE as stable alternatives.
     
     Parameters
     ----------
@@ -212,9 +213,13 @@ def create_uncertainty_table(uncertainty_df: pd.DataFrame,
     DataFrame
         Formatted uncertainty table
     """
-    # Filter out MAPE if present (unstable)
+    # Filter out unstable MAPE metrics
     if 'metric' in uncertainty_df.columns:
-        uncertainty_df = uncertainty_df[~uncertainty_df['metric'].str.contains('mape', case=False)]
+        # Exclude any MAPE-related metrics
+        exclude_pattern = 'mape'
+        uncertainty_df = uncertainty_df[
+            ~uncertainty_df['metric'].str.lower().str.contains(exclude_pattern)
+        ].copy()
     
     formatted = {
         'Metric': [],
@@ -224,36 +229,49 @@ def create_uncertainty_table(uncertainty_df: pd.DataFrame,
         'Unit': []
     }
     
-    metric_units = {
-        'weighted_rmse': 'kBTU',
-        'weighted_mae': 'kBTU',
-        'weighted_r2': '—',
-        'weighted_bias': 'kBTU',
-        'wape': '%',
-        'nmae': '%'
+    metric_info = {
+        'weighted_rmse': ('wRMSE', 'kBTU', False),
+        'weighted_mae': ('wMAE', 'kBTU', False),
+        'weighted_r2': ('wR²', '—', True),
+        'weighted_bias': ('wBias', 'kBTU', False),
+        'weighted_wape': ('WAPE', '%', True),
+        'weighted_nmae': ('nMAE', '%', True),
     }
     
     for _, row in uncertainty_df.iterrows():
         metric_name = row['metric']
-        formatted['Metric'].append(metric_name.replace('weighted_', 'w').replace('_', ' ').title())
         
-        if metric_name == 'weighted_r2':
-            formatted['Estimate'].append(f"{row['estimate']:.4f}")
-            formatted['SE'].append(f"{row['se']:.4f}")
-            formatted['95% CI'].append(f"[{row['ci_lower']:.4f}, {row['ci_upper']:.4f}]")
+        # Get display info
+        if metric_name in metric_info:
+            display_name, unit, is_ratio = metric_info[metric_name]
+        else:
+            display_name = metric_name.replace('weighted_', 'w').replace('_', ' ').title()
+            unit = 'kBTU'
+            is_ratio = False
+        
+        formatted['Metric'].append(display_name)
+        formatted['Unit'].append(unit)
+        
+        # Format based on metric type
+        if is_ratio or metric_name == 'weighted_r2':
+            formatted['Estimate'].append(f"{row['estimate']:.3f}")
+            formatted['SE'].append(f"{row['se']:.3f}")
+            formatted['95% CI'].append(f"[{row['ci_lower']:.3f}, {row['ci_upper']:.3f}]")
+        elif unit == '%':
+            formatted['Estimate'].append(f"{row['estimate']:.1f}")
+            formatted['SE'].append(f"{row['se']:.1f}")
+            formatted['95% CI'].append(f"[{row['ci_lower']:.1f}, {row['ci_upper']:.1f}]")
         else:
             formatted['Estimate'].append(f"{row['estimate']:,.0f}")
             formatted['SE'].append(f"{row['se']:,.0f}")
             formatted['95% CI'].append(f"[{row['ci_lower']:,.0f}, {row['ci_upper']:,.0f}]")
-        
-        formatted['Unit'].append(metric_units.get(metric_name, 'kBTU'))
     
     result_df = pd.DataFrame(formatted)
     
-    # Add note about method
     result_df.attrs['note'] = (
-        "All metrics computed on outer-fold test predictions with population weights (NWEIGHT). "
-        "Uncertainty estimated using RECS replicate-weight jackknife (n=60)."
+        "All metrics computed on outer-fold test predictions with NWEIGHT. "
+        "SE and 95% CI from RECS replicate-weight jackknife (n=60). "
+        "MAPE excluded (unstable for small denominators); WAPE and nMAE used instead."
     )
     
     return result_df
@@ -343,8 +361,8 @@ def create_composition_table(composition_df: pd.DataFrame,
     - Subgroup shares among candidates
     - (Weighted - Unweighted) differences
     - Population share
-    - Representation ratio
-    - Within-group selection rate
+    - Within-group selection rate (% of group selected into Top 10%)
+    - Representation ratio (candidate share / population share)
     
     Parameters
     ----------
@@ -378,33 +396,50 @@ def create_composition_table(composition_df: pd.DataFrame,
         result_df['Group'] = result_df[label_col].astype(str)
     
     # Rename columns for clarity
-    result_df = result_df.rename(columns={
-        'share_weighted_candidates': 'Weighted Share (%)',
+    rename_map = {
+        'share_weighted_candidates': 'Candidate Share (%)',
         'share_unweighted_candidates': 'Unweighted Share (%)',
         'share_difference': 'Difference (pp)',
         'population_share': 'Population Share (%)',
-        'n_in_group': 'n (unweighted)'
-    })
+        'n_in_group': 'n',
+        'within_group_selection_rate': 'Selection Rate (%)',
+        'representation_ratio': 'Repr. Ratio'
+    }
+    result_df = result_df.rename(columns=rename_map)
     
-    # Calculate representation ratio
-    if include_representation_ratio and 'Population Share (%)' in result_df.columns:
-        result_df['Representation Ratio'] = (
-            result_df['Weighted Share (%)'] / result_df['Population Share (%)']
-        ).round(2)
+    # Calculate representation ratio if not already present
+    if include_representation_ratio:
+        if 'Repr. Ratio' not in result_df.columns and 'Population Share (%)' in result_df.columns and 'Candidate Share (%)' in result_df.columns:
+            result_df['Repr. Ratio'] = (
+                result_df['Candidate Share (%)'] / result_df['Population Share (%)']
+            ).round(2)
     
     # Select and order columns
-    cols_to_keep = ['Group', 'n (unweighted)', 'Population Share (%)', 
-                    'Weighted Share (%)', 'Unweighted Share (%)', 
+    cols_to_keep = ['Group', 'n', 'Population Share (%)', 
+                    'Candidate Share (%)', 'Unweighted Share (%)', 
                     'Difference (pp)']
-    if 'Representation Ratio' in result_df.columns:
-        cols_to_keep.append('Representation Ratio')
+    
+    if 'Selection Rate (%)' in result_df.columns:
+        cols_to_keep.append('Selection Rate (%)')
+    
+    if 'Repr. Ratio' in result_df.columns:
+        cols_to_keep.append('Repr. Ratio')
     
     result_df = result_df[[c for c in cols_to_keep if c in result_df.columns]]
     
     # Round numeric columns
     for col in result_df.columns:
         if result_df[col].dtype in [np.float64, np.float32]:
-            result_df[col] = result_df[col].round(1)
+            if 'Ratio' in col:
+                result_df[col] = result_df[col].round(2)
+            else:
+                result_df[col] = result_df[col].round(1)
+    
+    # Add interpretation note
+    result_df.attrs['note'] = (
+        "Repr. Ratio > 1 means overrepresented among candidates; < 1 means underrepresented. "
+        "Selection Rate = % of subgroup selected into Top 10%."
+    )
     
     return result_df
 

@@ -38,6 +38,7 @@ from src.models.baselines import PhysicsBaselines, MonolithicBaseline
 from src.models.main_models import HeatingDemandModels, LightGBMHeatingModel
 from src.evaluation.metrics import WeightedMetrics, PhysicsDiagnostics, ErrorEquityAnalysis
 from src.evaluation.nested_cv import NestedCrossValidator, compare_split_vs_monolithic
+from src.evaluation.model_comparison import create_split_vs_monolithic_table, create_h1_summary_table
 from src.policy.targeting import PolicyTargeting
 from src.uncertainty.jackknife import JackknifeUncertainty, RefitSensitivity, CombinedUncertainty
 from src.visualization.plots import HeatingDemandVisualizer, create_workflow_diagram

@@ -248,36 +248,54 @@ class PolicyTargeting:
                                     groups: np.ndarray,
                                     group_name: str) -> pd.DataFrame:
         """
-        Compute composition by group.
+        Compute composition by group with selection rates and representation ratios.
+        
+        Includes:
+        - Candidate share among all candidates
+        - Within-group selection rate (% of group selected)
+        - Representation ratio (candidate share / population share)
         """
         results = []
+        total_weight = weights.sum()
+        total_weighted_candidates = weights[candidates_weighted].sum()
+        total_unweighted_candidates = candidates_unweighted.sum()
         
         for group_val in np.unique(groups):
             if pd.isna(group_val):
                 continue
             
             group_mask = groups == group_val
+            group_weight = weights[group_mask].sum()
+            n_in_group = group_mask.sum()
+            
+            # Population share (weighted)
+            pop_share = group_weight / total_weight * 100
             
             # Weighted share in weighted candidates
             w_in_weighted_cands = weights[candidates_weighted & group_mask].sum()
-            total_w_weighted = weights[candidates_weighted].sum()
-            share_weighted = w_in_weighted_cands / total_w_weighted * 100 if total_w_weighted > 0 else 0
+            share_weighted = w_in_weighted_cands / total_weighted_candidates * 100 if total_weighted_candidates > 0 else 0
             
             # Share in unweighted candidates
-            n_in_unweighted = (candidates_unweighted & group_mask).sum()
-            total_unweighted = candidates_unweighted.sum()
-            share_unweighted = n_in_unweighted / total_unweighted * 100 if total_unweighted > 0 else 0
+            n_in_unweighted_cands = (candidates_unweighted & group_mask).sum()
+            share_unweighted = n_in_unweighted_cands / total_unweighted_candidates * 100 if total_unweighted_candidates > 0 else 0
             
-            # Population share (weighted)
-            pop_share = weights[group_mask].sum() / weights.sum() * 100
+            # Within-group selection rate (weighted)
+            # What % of this group gets selected as candidates?
+            within_group_selection_rate = w_in_weighted_cands / group_weight * 100 if group_weight > 0 else 0
+            
+            # Representation ratio (candidate share / population share)
+            # >1 = overrepresented, <1 = underrepresented
+            representation_ratio = share_weighted / pop_share if pop_share > 0 else 0
             
             results.append({
                 f'{group_name}': group_val,
+                'n_in_group': n_in_group,
+                'population_share': pop_share,
                 'share_weighted_candidates': share_weighted,
                 'share_unweighted_candidates': share_unweighted,
                 'share_difference': share_weighted - share_unweighted,
-                'population_share': pop_share,
-                'n_in_group': group_mask.sum()
+                'within_group_selection_rate': within_group_selection_rate,
+                'representation_ratio': representation_ratio
             })
         
         return pd.DataFrame(results)
@@ -425,7 +443,7 @@ class TargetingUncertainty:
         jaccard_se = np.sqrt(jaccard_var)
         
         # 95% CI
-        z = 1.96
+        z = self.z_score
         
         return {
             'threshold': {
@@ -440,19 +458,112 @@ class TargetingUncertainty:
                 'ci_lower': main_n_candidates - z * n_candidates_se,
                 'ci_upper': main_n_candidates + z * n_candidates_se
             },
-            'jaccard_stability': {
-                'mean': rep_jaccard_vs_main.mean(),
+            'jaccard': {
+                'estimate': rep_jaccard_vs_main.mean(),
                 'se': jaccard_se,
+                'ci_lower': max(0, rep_jaccard_vs_main.mean() - z * jaccard_se),
+                'ci_upper': min(1, rep_jaccard_vs_main.mean() + z * jaccard_se),
                 'min': rep_jaccard_vs_main.min(),
                 'max': rep_jaccard_vs_main.max()
             }
         }
+    
+    def compute_jaccard_overlap_with_ci(self,
+                                         scores: np.ndarray,
+                                         weights: np.ndarray,
+                                         replicate_weights: pd.DataFrame,
+                                         target_percentile: float = 90) -> Dict[str, Any]:
+        """
+        Compute Jaccard index and Overlap rate with 95% CI.
+        
+        Compares weighted vs unweighted candidate lists.
+        
+        Parameters
+        ----------
+        scores : array
+            Policy scores
+        weights : array
+            Main weights (NWEIGHT)
+        replicate_weights : DataFrame
+            Replicate weights (NWEIGHT1-60)
+        target_percentile : float
+            Target percentile
+            
+        Returns
+        -------
+        dict
+            Jaccard and Overlap with 95% CIs
+        """
+        quantile = target_percentile / 100
+        z = self.z_score
+        
+        # Main estimates
+        threshold_w = compute_weighted_quantile(scores, weights, quantile)
+        threshold_uw = np.quantile(scores[~np.isnan(scores)], quantile)
+        
+        candidates_w = scores >= threshold_w
+        candidates_uw = scores >= threshold_uw
+        
+        intersection = np.sum(candidates_w & candidates_uw)
+        union = np.sum(candidates_w | candidates_uw)
+        main_jaccard = intersection / union if union > 0 else 0
+        
+        min_size = min(candidates_w.sum(), candidates_uw.sum())
+        main_overlap = intersection / min_size if min_size > 0 else 0
+        
+        # Replicate estimates
+        rep_jaccards = []
+        rep_overlaps = []
+        
+        for col in replicate_weights.columns[:self.n_replicates]:
+            rep_w = replicate_weights[col].values
+            rep_threshold = compute_weighted_quantile(scores, rep_w, quantile)
+            rep_candidates = scores >= rep_threshold
+            
+            rep_inter = np.sum(rep_candidates & candidates_uw)
+            rep_union = np.sum(rep_candidates | candidates_uw)
+            rep_jaccard = rep_inter / rep_union if rep_union > 0 else 0
+            
+            rep_min = min(rep_candidates.sum(), candidates_uw.sum())
+            rep_overlap = rep_inter / rep_min if rep_min > 0 else 0
+            
+            rep_jaccards.append(rep_jaccard)
+            rep_overlaps.append(rep_overlap)
+        
+        rep_jaccards = np.array(rep_jaccards)
+        rep_overlaps = np.array(rep_overlaps)
+        n = len(rep_jaccards)
+        
+        # Jackknife variance
+        jaccard_var = (n - 1) / n * np.sum((rep_jaccards - rep_jaccards.mean()) ** 2)
+        jaccard_se = np.sqrt(jaccard_var)
+        
+        overlap_var = (n - 1) / n * np.sum((rep_overlaps - rep_overlaps.mean()) ** 2)
+        overlap_se = np.sqrt(overlap_var)
+        
+        return {
+            'jaccard': {
+                'estimate': main_jaccard,
+                'se': jaccard_se,
+                'ci_lower': max(0, main_jaccard - z * jaccard_se),
+                'ci_upper': min(1, main_jaccard + z * jaccard_se)
+            },
+            'overlap': {
+                'estimate': main_overlap,
+                'se': overlap_se,
+                'ci_lower': max(0, main_overlap - z * overlap_se),
+                'ci_upper': min(1, main_overlap + z * overlap_se)
+            },
+            'n_weighted_candidates': int(candidates_w.sum()),
+            'n_unweighted_candidates': int(candidates_uw.sum())
+        }
 
 
 def create_targeting_summary_table(analysis_results: Dict[str, Any],
-                                    score_name: str = 'high_use') -> pd.DataFrame:
+                                    score_name: str = 'high_use',
+                                    uncertainty_results: Dict[str, Any] = None) -> pd.DataFrame:
     """
-    Create summary table for policy targeting results.
+    Create summary table for policy targeting results with uncertainty.
     
     Parameters
     ----------
@@ -460,39 +571,58 @@ def create_targeting_summary_table(analysis_results: Dict[str, Any],
         Results from PolicyTargeting.run_full_analysis()
     score_name : str
         Which score to summarize
+    uncertainty_results : dict, optional
+        Uncertainty results from TargetingUncertainty
         
     Returns
     -------
     DataFrame
-        Summary table
+        Summary table with CIs
     """
     if score_name not in analysis_results['weighted_vs_unweighted']:
         raise ValueError(f"Score {score_name} not found in results")
     
     score_results = analysis_results['weighted_vs_unweighted'][score_name]
-    
-    summary = {
-        'Metric': [],
-        'Value': []
-    }
-    
-    # Overlap metrics
     overlap = score_results['overlap']
-    summary['Metric'].extend([
-        'Jaccard Index',
-        'Overlap Rate',
-        'Candidates Only in Weighted',
-        'Candidates Only in Unweighted',
-        'Weighted Threshold',
-        'Unweighted Threshold'
-    ])
-    summary['Value'].extend([
-        f"{overlap['jaccard_index']:.3f}",
-        f"{overlap['overlap_rate']:.3f}",
-        f"{overlap['only_weighted']} ({overlap['pct_only_weighted']:.1f}%)",
-        f"{overlap['only_unweighted']} ({overlap['pct_only_unweighted']:.1f}%)",
-        f"{score_results['weighted_threshold']:,.0f}",
-        f"{score_results['unweighted_threshold']:,.0f}"
+    
+    rows = []
+    
+    # Jaccard Index with CI if available
+    jaccard_val = f"{overlap['jaccard_index']:.3f}"
+    if uncertainty_results and 'jaccard' in uncertainty_results:
+        jac = uncertainty_results['jaccard']
+        jaccard_val = f"{jac['estimate']:.3f} [{jac['ci_lower']:.3f}, {jac['ci_upper']:.3f}]"
+    rows.append({'Metric': 'Jaccard Index', 'Value': jaccard_val, 
+                 'Description': 'Intersection / Union of candidate sets'})
+    
+    # Overlap Rate with CI if available
+    overlap_val = f"{overlap['overlap_rate']:.3f}"
+    if uncertainty_results and 'overlap' in uncertainty_results:
+        ovl = uncertainty_results['overlap']
+        overlap_val = f"{ovl['estimate']:.3f} [{ovl['ci_lower']:.3f}, {ovl['ci_upper']:.3f}]"
+    rows.append({'Metric': 'Overlap Rate', 'Value': overlap_val,
+                 'Description': 'Intersection / min(|Weighted|, |Unweighted|)'})
+    
+    # Other metrics
+    rows.extend([
+        {'Metric': 'Only in Weighted', 
+         'Value': f"{overlap['only_weighted']} ({overlap['pct_only_weighted']:.1f}%)",
+         'Description': 'Candidates selected only with weights'},
+        {'Metric': 'Only in Unweighted',
+         'Value': f"{overlap['only_unweighted']} ({overlap['pct_only_unweighted']:.1f}%)",
+         'Description': 'Candidates selected only without weights'},
+        {'Metric': 'Weighted Threshold',
+         'Value': f"{score_results['weighted_threshold']:,.0f} kBTU",
+         'Description': f"Weighted {100-score_results.get('target_pct', 10):.0f}th percentile"},
+        {'Metric': 'Unweighted Threshold',
+         'Value': f"{score_results['unweighted_threshold']:,.0f} kBTU",
+         'Description': f"Unweighted {100-score_results.get('target_pct', 10):.0f}th percentile"}
     ])
     
-    return pd.DataFrame(summary)
+    result_df = pd.DataFrame(rows)
+    result_df.attrs['note'] = (
+        f"Policy score: {score_name}. Top 10% candidates defined by weighted/unweighted "
+        "90th percentile. 95% CIs from replicate-weight jackknife (n=60)."
+    )
+    
+    return result_df

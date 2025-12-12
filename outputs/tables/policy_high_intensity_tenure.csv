@@ -1,5 +1,5 @@
 # Composition shift for high_intensity targeting by tenure. Representation Ratio = Share among candidates / Population share.
-Group,n (unweighted),Population Share (%),Weighted Share (%),Unweighted Share (%),Difference (pp),Representation Ratio
-Owned,12944,68.2,72.3,75.1,-2.8,1.1
-Rented,4516,30.8,26.0,23.5,2.6,0.8
-Occupied w/o Payment,171,1.0,1.6,1.4,0.2,1.6
+Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
+Owned,12944,68.2,72.3,75.1,-2.8,10.6,1.06
+Rented,4516,30.8,26.0,23.5,2.6,8.4,0.84
+Occupied w/o Payment,171,1.0,1.6,1.4,0.2,16.0,1.6

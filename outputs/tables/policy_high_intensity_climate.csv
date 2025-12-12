@@ -1,7 +1,7 @@
 # Composition shift for high_intensity targeting by climate. Representation Ratio = Share among candidates / Population share.
-Group,n (unweighted),Population Share (%),Weighted Share (%),Unweighted Share (%),Difference (pp),Representation Ratio
-cold,3125,13.1,28.1,31.7,-3.6,2.2
-mild,3971,23.5,8.1,6.7,1.4,0.4
-moderate,6597,38.3,57.3,44.5,12.8,1.5
-very_cold,872,1.6,6.1,16.8,-10.7,3.8
-very_mild,3066,23.5,0.3,0.3,0.1,0.0
+Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
+cold,3125,13.1,28.1,31.7,-3.6,21.5,2.15
+mild,3971,23.5,8.1,6.7,1.4,3.5,0.35
+moderate,6597,38.3,57.3,44.5,12.8,15.0,1.5
+very_cold,872,1.6,6.1,16.8,-10.7,37.7,3.77
+very_mild,3066,23.5,0.3,0.3,0.1,0.1,0.01
