@@ -577,7 +577,10 @@ class ErrorEquityAnalysis:
                         income: np.ndarray, weights: np.ndarray,
                         n_deciles: int = 10) -> pd.DataFrame:
         """
-        Analyze errors by income deciles.
+        Analyze errors by income categories (MONEYPY codes).
+        
+        Uses MONEYPY codes directly (1-16) rather than creating arbitrary deciles,
+        ensuring consistency with policy targeting composition tables.
         
         Parameters
         ----------
@@ -586,11 +589,11 @@ class ErrorEquityAnalysis:
         y_pred : array
             Predicted values
         income : array
-            Income values/categories
+            MONEYPY income category codes (1-16)
         weights : array
             Sample weights
         n_deciles : int
-            Number of income groups
+            Ignored (kept for backward compatibility). Uses actual MONEYPY codes.
             
         Returns
         -------
@@ -600,33 +603,43 @@ class ErrorEquityAnalysis:
         residuals = y_pred - y_true
         abs_errors = np.abs(residuals)
         
-        # Create income deciles using weighted quantiles
-        income_deciles = pd.qcut(income, q=n_deciles, labels=False, duplicates='drop')
+        # RECS 2020 MONEYPY income labels (16 categories)
+        income_labels = {
+            1: '<$5K', 2: '$5-7.5K', 3: '$7.5-10K', 4: '$10-12.5K',
+            5: '$12.5-15K', 6: '$15-20K', 7: '$20-25K', 8: '$25-30K',
+            9: '$30-35K', 10: '$35-40K', 11: '$40-50K', 12: '$50-60K',
+            13: '$60-75K', 14: '$75-100K', 15: '$100-150K', 16: '$150K+'
+        }
         
         results = []
-        for decile in range(int(income_deciles.max()) + 1):
-            mask = income_deciles == decile
+        for income_code in sorted(np.unique(income)):
+            if pd.isna(income_code):
+                continue
+            
+            income_code = int(income_code)
+            mask = income == income_code
             if mask.sum() == 0:
                 continue
             
-            dec_weights = weights[mask]
-            dec_residuals = residuals[mask]
-            dec_abs_errors = abs_errors[mask]
-            dec_true = y_true[mask]
+            grp_weights = weights[mask]
+            grp_residuals = residuals[mask]
+            grp_abs_errors = abs_errors[mask]
+            grp_true = y_true[mask]
             
-            valid = ~np.isnan(dec_residuals)
+            valid = ~np.isnan(grp_residuals)
             
-            weighted_bias = np.sum(dec_weights[valid] * dec_residuals[valid]) / np.sum(dec_weights[valid])
-            weighted_mae = np.sum(dec_weights[valid] * dec_abs_errors[valid]) / np.sum(dec_weights[valid])
+            weighted_bias = np.sum(grp_weights[valid] * grp_residuals[valid]) / np.sum(grp_weights[valid])
+            weighted_mae = np.sum(grp_weights[valid] * grp_abs_errors[valid]) / np.sum(grp_weights[valid])
             weighted_rmse = np.sqrt(
-                np.sum(dec_weights[valid] * dec_residuals[valid]**2) / np.sum(dec_weights[valid])
+                np.sum(grp_weights[valid] * grp_residuals[valid]**2) / np.sum(grp_weights[valid])
             )
-            weighted_mean_true = np.sum(dec_weights[valid] * dec_true[valid]) / np.sum(dec_weights[valid])
+            weighted_mean_true = np.sum(grp_weights[valid] * grp_true[valid]) / np.sum(grp_weights[valid])
             
             results.append({
-                'income_decile': decile + 1,
+                'income_code': income_code,
+                'income_group': income_labels.get(income_code, f'Code {income_code}'),
                 'n_samples': mask.sum(),
-                'total_weight': dec_weights.sum(),
+                'total_weight': grp_weights.sum(),
                 'weighted_bias': weighted_bias,
                 'weighted_mae': weighted_mae,
                 'weighted_rmse': weighted_rmse,

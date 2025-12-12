@@ -1,5 +1,5 @@
 # Bias = weighted mean(Ŷ − Y). nMAE = MAE / mean(Y) × 100. All metrics computed on outer-fold predictions with NWEIGHT.
 Group,n,Mean Observed (kBTU),Bias (kBTU),MAE (kBTU),Bias (%),nMAE (%)
-Owned,12944,41936,-4883,14039,-11.6,33.5
-Rented,4516,17596,-1747,7038,-9.9,40.0
-Occupied without payment,171,35325,-5012,11491,-14.2,32.5
+Owned,12944,41936,-10081,18260,-24.0,43.5
+Rented,4516,17596,-360,10387,-2.0,59.0
+Occupied without payment,171,35325,-11633,17191,-32.9,48.7

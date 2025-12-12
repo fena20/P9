@@ -1,8 +1,8 @@
 # Policy score: excess_demand. Top 10% candidates defined using weighted/unweighted 90th percentile threshold on outer-fold predictions.
 Metric,Value,Description
-Jaccard Index,0.960,Intersection / Union of candidate sets
+Jaccard Index,0.909,Intersection / Union of candidate sets
 Overlap Rate,1.000,"Intersection / min(|Weighted|, |Unweighted|)"
-Only in Weighted,74 (4.0%),Candidates selected only with weights
+Only in Weighted,176 (9.1%),Candidates selected only with weights
 Only in Unweighted,0 (0.0%),Candidates selected only without weights
-Weighted Threshold,"18,677 kBTU",Weighted 90th percentile cutoff
-Unweighted Threshold,"19,164 kBTU",Unweighted 90th percentile cutoff
+Weighted Threshold,"12,655 kBTU",Weighted 90th percentile cutoff
+Unweighted Threshold,"13,629 kBTU",Unweighted 90th percentile cutoff

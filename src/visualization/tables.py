@@ -35,6 +35,23 @@ YEARMADE_LABELS = {
     5: '1980-1989', 6: '1990-1999', 7: '2000-2009', 8: '2010-2015', 9: '2016-2020'
 }
 
+# RECS 2020 MONEYPY codes - complete income ranges (16 categories)
+INCOME_LABELS = {
+    1: '<$5K', 2: '$5-7.5K', 3: '$7.5-10K', 4: '$10-12.5K',
+    5: '$12.5-15K', 6: '$15-20K', 7: '$20-25K', 8: '$25-30K',
+    9: '$30-35K', 10: '$35-40K', 11: '$40-50K', 12: '$50-60K',
+    13: '$60-75K', 14: '$75-100K', 15: '$100-150K', 16: '$150K+'
+}
+
+# Climate/HDD bin labels
+CLIMATE_LABELS = {
+    'very_mild': 'Very Mild (<2k HDD)',
+    'mild': 'Mild (2-4k HDD)',
+    'moderate': 'Moderate (4-6k HDD)',
+    'cold': 'Cold (6-8k HDD)',
+    'very_cold': 'Very Cold (>8k HDD)'
+}
+
 
 def create_table1_descriptives(df: pd.DataFrame,
                                 weights: pd.Series,
@@ -381,7 +398,9 @@ def create_composition_table(composition_df: pd.DataFrame,
     label_maps = {
         'housing_type': HOUSING_TYPE_LABELS,
         'tenure': TENURE_LABELS,
-        'division': DIVISION_LABELS
+        'division': DIVISION_LABELS,
+        'income': INCOME_LABELS,
+        'climate': CLIMATE_LABELS
     }
     
     label_map = label_maps.get(group_type, {})
@@ -472,18 +491,23 @@ def create_equity_table(equity_df: pd.DataFrame,
     """
     label_maps = {
         'housing_type': HOUSING_TYPE_LABELS,
-        'tenure': TENURE_LABELS
+        'tenure': TENURE_LABELS,
+        'income': INCOME_LABELS
     }
     
     label_map = label_maps.get(group_type, {})
     
     result_df = equity_df.copy()
-    label_col = result_df.columns[0]
     
-    if label_map:
-        result_df['Group'] = result_df[label_col].map(lambda x: label_map.get(x, str(x)))
+    # Handle income data which has 'income_group' column with labels already
+    if 'income_group' in result_df.columns:
+        result_df['Group'] = result_df['income_group']
     else:
-        result_df['Group'] = result_df[label_col].astype(str)
+        label_col = result_df.columns[0]
+        if label_map:
+            result_df['Group'] = result_df[label_col].map(lambda x: label_map.get(x, str(x)))
+        else:
+            result_df['Group'] = result_df[label_col].astype(str)
     
     # Compute normalized metrics
     if include_normalized and 'weighted_mean_true' in result_df.columns:

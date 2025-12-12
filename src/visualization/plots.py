@@ -42,9 +42,12 @@ DIVISION_LABELS = {
     10: 'Pacific'
 }
 
+# RECS 2020 MONEYPY codes (1-16) - actual income ranges
 INCOME_BIN_LABELS = {
-    1: '<$20K', 2: '$20-40K', 3: '$40-60K', 4: '$60-80K',
-    5: '$80-100K', 6: '$100-120K', 7: '$120-140K', 8: '$140K+'
+    1: '<$5K', 2: '$5-7.5K', 3: '$7.5-10K', 4: '$10-12.5K',
+    5: '$12.5-15K', 6: '$15-20K', 7: '$20-25K', 8: '$25-30K',
+    9: '$30-35K', 10: '$35-40K', 11: '$40-50K', 12: '$50-60K',
+    13: '$60-75K', 14: '$75-100K', 15: '$100-150K', 16: '$150K+'
 }
 
 
@@ -371,7 +374,11 @@ class HeatingDemandVisualizer:
             'housing_type': HOUSING_TYPE_LABELS,
             'tenure': TENURE_LABELS,
             'division': DIVISION_LABELS,
-            'income': INCOME_BIN_LABELS
+            'income': INCOME_BIN_LABELS,
+            'climate': {
+                'very_mild': 'Very Mild', 'mild': 'Mild', 
+                'moderate': 'Moderate', 'cold': 'Cold', 'very_cold': 'Very Cold'
+            }
         }
         
         for ax, (group_name, df) in zip(axes, composition_results.items()):
