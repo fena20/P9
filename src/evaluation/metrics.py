@@ -514,6 +514,11 @@ class ErrorEquityAnalysis:
     - Housing types
     - Renters vs owners
     - Regions
+    
+    All metrics include:
+    - Bias = weighted mean(Ŷ - Y)
+    - nMAE = MAE / mean(Y) × 100 (normalized, scale-free)
+    - Group n and weighted share
     """
     
     def __init__(self):

@@ -1,0 +1,563 @@
+"""
+Table Generation Utilities for Heating Demand Modeling
+
+Creates publication-quality tables as specified in Section 13.
+All tables follow requirements:
+- Remove spreadsheet artifacts
+- Replace codes with human-readable labels
+- Declare weighted vs unweighted, out-of-sample vs in-sample
+- Include metric definitions and units
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Dict, List, Optional, Tuple, Any
+
+from src.utils.helpers import logger, compute_weighted_quantile
+
+
+# Human-readable labels for RECS codes
+HOUSING_TYPE_LABELS = {
+    1: 'Mobile Home', 2: 'Single-Family Detached', 3: 'Single-Family Attached',
+    4: 'Apartment (2-4 units)', 5: 'Apartment (5+ units)'
+}
+
+TENURE_LABELS = {1: 'Owned', 2: 'Rented', 3: 'Occupied w/o Payment'}
+
+DIVISION_LABELS = {
+    1: 'New England', 2: 'Middle Atlantic', 3: 'East North Central',
+    4: 'West North Central', 5: 'South Atlantic', 6: 'East South Central',
+    7: 'West South Central', 8: 'Mountain North', 9: 'Mountain South', 10: 'Pacific'
+}
+
+YEARMADE_LABELS = {
+    1: 'Before 1950', 2: '1950-1959', 3: '1960-1969', 4: '1970-1979',
+    5: '1980-1989', 6: '1990-1999', 7: '2000-2009', 8: '2010-2015', 9: '2016-2020'
+}
+
+
+def create_table1_descriptives(df: pd.DataFrame,
+                                weights: pd.Series,
+                                replicate_weights: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """
+    Create Table 1: Descriptive statistics by technology group.
+    
+    Includes (weighted):
+    - n (unweighted), population share (weighted)
+    - mean/median E_heat, E_heat/A
+    - mean HDD, mean area
+    - vintage/envelope proxies
+    - COVID indicator shares
+    
+    Parameters
+    ----------
+    df : DataFrame
+        Preprocessed RECS data with tech_group
+    weights : Series
+        NWEIGHT values
+    replicate_weights : DataFrame, optional
+        For uncertainty estimation
+        
+    Returns
+    -------
+    DataFrame
+        Publication-ready Table 1
+    """
+    results = []
+    total_weight = weights.sum()
+    
+    for group in df['tech_group'].unique():
+        mask = df['tech_group'] == group
+        group_df = df[mask]
+        group_weights = weights[mask]
+        
+        row = {
+            'Technology Group': group.replace('_', ' ').title(),
+            'n (unweighted)': len(group_df),
+            'Population Share (%)': group_weights.sum() / total_weight * 100,
+        }
+        
+        # Energy metrics
+        energy = group_df['TOTALBTUSPH'].values
+        valid = ~np.isnan(energy)
+        if valid.sum() > 0:
+            row['Mean E_heat (kBTU)'] = np.average(energy[valid], weights=group_weights.values[valid])
+            row['Median E_heat (kBTU)'] = compute_weighted_quantile(
+                energy[valid], group_weights.values[valid], 0.5
+            )
+        
+        # Energy intensity
+        if 'TOTSQFT_EN' in group_df.columns:
+            intensity = energy / group_df['TOTSQFT_EN'].values
+            valid_int = ~np.isnan(intensity)
+            if valid_int.sum() > 0:
+                row['Mean E/Area (kBTU/ft²)'] = np.average(
+                    intensity[valid_int], weights=group_weights.values[valid_int]
+                )
+        
+        # Climate
+        if 'HDD65' in group_df.columns:
+            hdd = group_df['HDD65'].values
+            row['Mean HDD'] = np.average(hdd[valid], weights=group_weights.values[valid])
+        
+        # Area
+        if 'TOTSQFT_EN' in group_df.columns:
+            sqft = group_df['TOTSQFT_EN'].values
+            row['Mean Area (ft²)'] = np.average(sqft[valid], weights=group_weights.values[valid])
+        
+        # Vintage (share pre-1980)
+        if 'YEARMADERANGE' in group_df.columns:
+            pre1980 = group_df['YEARMADERANGE'] <= 4  # Before 1980
+            pre1980_share = np.average(pre1980.values[valid], weights=group_weights.values[valid])
+            row['Pre-1980 (%)'] = pre1980_share * 100
+        
+        # COVID indicators
+        if 'ATHOME' in group_df.columns:
+            athome = group_df['ATHOME'].values == 1
+            valid_athome = ~np.isnan(group_df['ATHOME'].values)
+            if valid_athome.sum() > 0:
+                row['At Home Daytime (%)'] = np.average(
+                    athome[valid_athome], weights=group_weights.values[valid_athome]
+                ) * 100
+        
+        if 'TELLWORK' in group_df.columns:
+            tellwork = group_df['TELLWORK'].values
+            valid_tw = ~np.isnan(tellwork) & (tellwork > 0)
+            if valid_tw.sum() > 0:
+                # TELLWORK > 0 means some telework
+                row['Telework (%)'] = valid_tw.sum() / len(group_df) * 100
+        
+        results.append(row)
+    
+    result_df = pd.DataFrame(results)
+    
+    # Round numeric columns
+    for col in result_df.columns:
+        if result_df[col].dtype in [np.float64, np.float32]:
+            if '%' in col:
+                result_df[col] = result_df[col].round(1)
+            elif 'kBTU' in col or 'Area' in col or 'HDD' in col:
+                result_df[col] = result_df[col].round(0).astype(int)
+    
+    return result_df
+
+
+def create_performance_table(fold_metrics_list: List[Dict],
+                              model_names: List[str],
+                              runtime_seconds: Optional[List[float]] = None) -> pd.DataFrame:
+    """
+    Create performance table with nested CV results.
+    
+    Shows outer-fold metrics per fold for each model,
+    then mean ± SD across folds.
+    
+    Parameters
+    ----------
+    fold_metrics_list : list
+        List of fold metrics DataFrames for each model
+    model_names : list
+        Names of models
+    runtime_seconds : list, optional
+        Runtime for each model
+        
+    Returns
+    -------
+    DataFrame
+        Performance comparison table
+    """
+    results = []
+    
+    for i, (metrics_df, name) in enumerate(zip(fold_metrics_list, model_names)):
+        # Per-fold metrics
+        for fold_idx, row in metrics_df.iterrows():
+            results.append({
+                'Model': name,
+                'Fold': fold_idx + 1,
+                'wRMSE (kBTU)': row.get('weighted_rmse', np.nan),
+                'wMAE (kBTU)': row.get('weighted_mae', np.nan),
+                'wR²': row.get('weighted_r2', np.nan),
+            })
+        
+        # Summary row
+        summary = {
+            'Model': name,
+            'Fold': 'Mean ± SD',
+            'wRMSE (kBTU)': f"{metrics_df['weighted_rmse'].mean():.0f} ± {metrics_df['weighted_rmse'].std():.0f}",
+            'wMAE (kBTU)': f"{metrics_df['weighted_mae'].mean():.0f} ± {metrics_df['weighted_mae'].std():.0f}",
+            'wR²': f"{metrics_df['weighted_r2'].mean():.3f} ± {metrics_df['weighted_r2'].std():.3f}",
+        }
+        if runtime_seconds and i < len(runtime_seconds):
+            summary['Runtime (s)'] = f"{runtime_seconds[i]:.1f}"
+        results.append(summary)
+    
+    return pd.DataFrame(results)
+
+
+def create_uncertainty_table(uncertainty_df: pd.DataFrame,
+                              include_policy_metrics: bool = True) -> pd.DataFrame:
+    """
+    Create uncertainty table with proper formatting.
+    
+    Avoids MAPE (unstable). Uses WAPE or nMAE instead.
+    
+    Parameters
+    ----------
+    uncertainty_df : DataFrame
+        Raw uncertainty results
+    include_policy_metrics : bool
+        Whether to include policy targeting metrics
+        
+    Returns
+    -------
+    DataFrame
+        Formatted uncertainty table
+    """
+    # Filter out MAPE if present (unstable)
+    if 'metric' in uncertainty_df.columns:
+        uncertainty_df = uncertainty_df[~uncertainty_df['metric'].str.contains('mape', case=False)]
+    
+    formatted = {
+        'Metric': [],
+        'Estimate': [],
+        'SE': [],
+        '95% CI': [],
+        'Unit': []
+    }
+    
+    metric_units = {
+        'weighted_rmse': 'kBTU',
+        'weighted_mae': 'kBTU',
+        'weighted_r2': '—',
+        'weighted_bias': 'kBTU',
+        'wape': '%',
+        'nmae': '%'
+    }
+    
+    for _, row in uncertainty_df.iterrows():
+        metric_name = row['metric']
+        formatted['Metric'].append(metric_name.replace('weighted_', 'w').replace('_', ' ').title())
+        
+        if metric_name == 'weighted_r2':
+            formatted['Estimate'].append(f"{row['estimate']:.4f}")
+            formatted['SE'].append(f"{row['se']:.4f}")
+            formatted['95% CI'].append(f"[{row['ci_lower']:.4f}, {row['ci_upper']:.4f}]")
+        else:
+            formatted['Estimate'].append(f"{row['estimate']:,.0f}")
+            formatted['SE'].append(f"{row['se']:,.0f}")
+            formatted['95% CI'].append(f"[{row['ci_lower']:,.0f}, {row['ci_upper']:,.0f}]")
+        
+        formatted['Unit'].append(metric_units.get(metric_name, 'kBTU'))
+    
+    result_df = pd.DataFrame(formatted)
+    
+    # Add note about method
+    result_df.attrs['note'] = (
+        "All metrics computed on outer-fold test predictions with population weights (NWEIGHT). "
+        "Uncertainty estimated using RECS replicate-weight jackknife (n=60)."
+    )
+    
+    return result_df
+
+
+def create_policy_targeting_table(targeting_results: Dict,
+                                   score_name: str = 'high_use',
+                                   include_cis: bool = True) -> pd.DataFrame:
+    """
+    Create policy targeting summary table.
+    
+    Includes:
+    - Jaccard (95% CI)
+    - Overlap rate (95% CI)
+    - Top positive/negative subgroup shifts
+    - Threshold values
+    
+    Parameters
+    ----------
+    targeting_results : dict
+        Results from PolicyTargeting analysis
+    score_name : str
+        Policy score to summarize
+    include_cis : bool
+        Whether to include confidence intervals
+        
+    Returns
+    -------
+    DataFrame
+        Policy targeting summary
+    """
+    if score_name not in targeting_results.get('weighted_vs_unweighted', {}):
+        return pd.DataFrame()
+    
+    score_results = targeting_results['weighted_vs_unweighted'][score_name]
+    overlap = score_results['overlap']
+    
+    rows = [
+        {
+            'Metric': 'Jaccard Index',
+            'Value': f"{overlap['jaccard_index']:.3f}",
+            'Description': 'Intersection / Union of candidate sets'
+        },
+        {
+            'Metric': 'Overlap Rate',
+            'Value': f"{overlap['overlap_rate']:.3f}",
+            'Description': 'Intersection / min(|Weighted|, |Unweighted|)'
+        },
+        {
+            'Metric': 'Only in Weighted',
+            'Value': f"{overlap['only_weighted']} ({overlap['pct_only_weighted']:.1f}%)",
+            'Description': 'Candidates selected only with weights'
+        },
+        {
+            'Metric': 'Only in Unweighted',
+            'Value': f"{overlap['only_unweighted']} ({overlap['pct_only_unweighted']:.1f}%)",
+            'Description': 'Candidates selected only without weights'
+        },
+        {
+            'Metric': 'Weighted Threshold',
+            'Value': f"{score_results['weighted_threshold']:,.0f} kBTU",
+            'Description': 'Weighted 90th percentile cutoff'
+        },
+        {
+            'Metric': 'Unweighted Threshold',
+            'Value': f"{score_results['unweighted_threshold']:,.0f} kBTU",
+            'Description': 'Unweighted 90th percentile cutoff'
+        },
+    ]
+    
+    result_df = pd.DataFrame(rows)
+    result_df.attrs['note'] = (
+        f"Policy score: {score_name}. Top 10% candidates defined using weighted/unweighted "
+        "90th percentile threshold on outer-fold predictions."
+    )
+    
+    return result_df
+
+
+def create_composition_table(composition_df: pd.DataFrame,
+                              group_type: str,
+                              include_representation_ratio: bool = True) -> pd.DataFrame:
+    """
+    Create composition shift table with human-readable labels.
+    
+    Includes:
+    - Subgroup shares among candidates
+    - (Weighted - Unweighted) differences
+    - Population share
+    - Representation ratio
+    - Within-group selection rate
+    
+    Parameters
+    ----------
+    composition_df : DataFrame
+        Raw composition results
+    group_type : str
+        Type of grouping (housing_type, tenure, income, division)
+    include_representation_ratio : bool
+        Whether to include representation ratio
+        
+    Returns
+    -------
+    DataFrame
+        Formatted composition table
+    """
+    label_maps = {
+        'housing_type': HOUSING_TYPE_LABELS,
+        'tenure': TENURE_LABELS,
+        'division': DIVISION_LABELS
+    }
+    
+    label_map = label_maps.get(group_type, {})
+    
+    # Copy and add human-readable labels
+    result_df = composition_df.copy()
+    label_col = result_df.columns[0]
+    
+    if label_map:
+        result_df['Group'] = result_df[label_col].map(lambda x: label_map.get(x, str(x)))
+    else:
+        result_df['Group'] = result_df[label_col].astype(str)
+    
+    # Rename columns for clarity
+    result_df = result_df.rename(columns={
+        'share_weighted_candidates': 'Weighted Share (%)',
+        'share_unweighted_candidates': 'Unweighted Share (%)',
+        'share_difference': 'Difference (pp)',
+        'population_share': 'Population Share (%)',
+        'n_in_group': 'n (unweighted)'
+    })
+    
+    # Calculate representation ratio
+    if include_representation_ratio and 'Population Share (%)' in result_df.columns:
+        result_df['Representation Ratio'] = (
+            result_df['Weighted Share (%)'] / result_df['Population Share (%)']
+        ).round(2)
+    
+    # Select and order columns
+    cols_to_keep = ['Group', 'n (unweighted)', 'Population Share (%)', 
+                    'Weighted Share (%)', 'Unweighted Share (%)', 
+                    'Difference (pp)']
+    if 'Representation Ratio' in result_df.columns:
+        cols_to_keep.append('Representation Ratio')
+    
+    result_df = result_df[[c for c in cols_to_keep if c in result_df.columns]]
+    
+    # Round numeric columns
+    for col in result_df.columns:
+        if result_df[col].dtype in [np.float64, np.float32]:
+            result_df[col] = result_df[col].round(1)
+    
+    return result_df
+
+
+def create_equity_table(equity_df: pd.DataFrame,
+                         group_type: str,
+                         include_normalized: bool = True) -> pd.DataFrame:
+    """
+    Create error equity table with proper formatting.
+    
+    Includes:
+    - Bias (kBTU) and Bias (% of mean)
+    - MAE (kBTU) and nMAE (%)
+    - Group n and weighted share
+    - 95% CIs (if available)
+    
+    Parameters
+    ----------
+    equity_df : DataFrame
+        Raw equity results
+    group_type : str
+        Type of grouping
+    include_normalized : bool
+        Whether to include normalized metrics
+        
+    Returns
+    -------
+    DataFrame
+        Formatted equity table
+    """
+    label_maps = {
+        'housing_type': HOUSING_TYPE_LABELS,
+        'tenure': TENURE_LABELS
+    }
+    
+    label_map = label_maps.get(group_type, {})
+    
+    result_df = equity_df.copy()
+    label_col = result_df.columns[0]
+    
+    if label_map:
+        result_df['Group'] = result_df[label_col].map(lambda x: label_map.get(x, str(x)))
+    else:
+        result_df['Group'] = result_df[label_col].astype(str)
+    
+    # Compute normalized metrics
+    if include_normalized and 'weighted_mean_true' in result_df.columns:
+        result_df['Bias (%)'] = (result_df['weighted_bias'] / result_df['weighted_mean_true'] * 100).round(1)
+        result_df['nMAE (%)'] = (result_df['weighted_mae'] / result_df['weighted_mean_true'] * 100).round(1)
+    
+    # Rename columns
+    result_df = result_df.rename(columns={
+        'n_samples': 'n',
+        'total_weight': 'Weighted Pop.',
+        'weighted_bias': 'Bias (kBTU)',
+        'weighted_mae': 'MAE (kBTU)',
+        'weighted_mean_true': 'Mean Observed (kBTU)'
+    })
+    
+    # Select columns
+    cols_to_keep = ['Group', 'n', 'Mean Observed (kBTU)', 
+                    'Bias (kBTU)', 'MAE (kBTU)']
+    if 'Bias (%)' in result_df.columns:
+        cols_to_keep.extend(['Bias (%)', 'nMAE (%)'])
+    
+    result_df = result_df[[c for c in cols_to_keep if c in result_df.columns]]
+    
+    # Round
+    for col in ['Bias (kBTU)', 'MAE (kBTU)', 'Mean Observed (kBTU)']:
+        if col in result_df.columns:
+            result_df[col] = result_df[col].round(0).astype(int)
+    
+    result_df.attrs['note'] = (
+        "Bias = weighted mean(Ŷ − Y). nMAE = MAE / mean(Y) × 100. "
+        "All metrics computed on outer-fold predictions with NWEIGHT."
+    )
+    
+    return result_df
+
+
+def create_hdd_diagnostics_table(bias_by_hdd_df: pd.DataFrame,
+                                  include_normalized: bool = True) -> pd.DataFrame:
+    """
+    Create HDD diagnostics table with bin support and normalized bias.
+    
+    Parameters
+    ----------
+    bias_by_hdd_df : DataFrame
+        Bias results by HDD bin
+    include_normalized : bool
+        Whether to include normalized bias
+        
+    Returns
+    -------
+    DataFrame
+        Formatted diagnostics table
+    """
+    result_df = bias_by_hdd_df.copy()
+    
+    # Rename columns
+    result_df = result_df.rename(columns={
+        'hdd_bin': 'HDD Bin',
+        'n_samples': 'n',
+        'total_weight': 'Weighted n',
+        'weighted_bias': 'Bias (kBTU)',
+        'weighted_mae': 'MAE (kBTU)',
+        'weighted_mean_true': 'Mean Observed (kBTU)',
+        'bias_pct': 'Bias (%)'
+    })
+    
+    # Round
+    numeric_cols = ['Bias (kBTU)', 'MAE (kBTU)', 'Mean Observed (kBTU)', 'Weighted n']
+    for col in numeric_cols:
+        if col in result_df.columns:
+            result_df[col] = result_df[col].round(0).astype(int)
+    
+    if 'Bias (%)' in result_df.columns:
+        result_df['Bias (%)'] = result_df['Bias (%)'].round(1)
+    
+    result_df.attrs['note'] = (
+        "Bias = weighted mean(Ŷ − Y). Normalized Bias = Bias / Mean Observed × 100. "
+        "Sparse high-HDD bins should be interpreted with caution."
+    )
+    
+    return result_df
+
+
+def save_table_with_note(df: pd.DataFrame, 
+                          filepath: str,
+                          note: str = None) -> None:
+    """
+    Save table to CSV with metadata note in comments.
+    
+    Parameters
+    ----------
+    df : DataFrame
+        Table to save
+    filepath : str
+        Output path
+    note : str, optional
+        Note to include
+    """
+    # Get note from attrs if not provided
+    if note is None:
+        note = df.attrs.get('note', '')
+    
+    # Remove any 'Unnamed' columns
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    
+    # Save with header comment
+    with open(filepath, 'w') as f:
+        if note:
+            f.write(f"# {note}\n")
+        df.to_csv(f, index=False)
+    
+    logger.info(f"Saved table: {filepath}")

@@ -396,7 +396,12 @@ def create_visualizations(df: pd.DataFrame,
                           diagnostic_results: dict,
                           output_dir: str) -> None:
     """
-    Step 9: Create visualizations.
+    Step 9: Create publication-quality visualizations.
+    
+    All figures follow publication standards:
+    - Clear labeling of weighted vs unweighted, outer-fold vs in-sample
+    - Human-readable labels for categorical codes
+    - Uncertainty quantification where applicable
     """
     print_section_header("STEP 9: CREATING VISUALIZATIONS")
     
@@ -404,30 +409,46 @@ def create_visualizations(df: pd.DataFrame,
     figures_dir = Path(output_dir) / 'figures'
     ensure_dir(str(figures_dir))
     
-    # Figure 1: Workflow diagram
+    # Determine if results are from CV
+    is_outer_fold = cv_results is not None and 'cv_result' in cv_results
+    
+    # Figure 1: Workflow diagram (FIXED: no dangling arrows, weights explicit)
     create_workflow_diagram(str(figures_dir / 'fig1_workflow.png'))
     
-    # Figure 2: Predicted vs Observed
+    # Figure 2: Predicted vs Observed (FIXED: calibration line, log-log, metrics labeled)
     fig = viz.plot_predicted_vs_observed(
         y_true=df['TOTALBTUSPH'].values,
         y_pred=predictions,
         weights=df['NWEIGHT'].values,
         tech_group=df['tech_group'].values,
-        title="Predicted vs Observed Heating Energy"
+        title="Predicted vs Observed Heating Energy",
+        is_outer_fold=is_outer_fold
     )
     viz.save_figure(fig, 'fig2_pred_vs_obs.png', str(figures_dir))
     
-    # Figure 3: Composition shifts
+    # Figure 2b: By technology group (supports H1)
+    fig = viz.plot_predicted_vs_observed_by_tech(
+        y_true=df['TOTALBTUSPH'].values,
+        y_pred=predictions,
+        weights=df['NWEIGHT'].values,
+        tech_group=df['tech_group'].values,
+        is_outer_fold=is_outer_fold
+    )
+    viz.save_figure(fig, 'fig2b_pred_vs_obs_by_tech.png', str(figures_dir))
+    
+    # Figure 3: Composition shifts (FIXED: human labels, Jaccard shown, differences)
     if 'weighted_vs_unweighted' in policy_results:
         high_use_results = policy_results['weighted_vs_unweighted'].get('high_use', {})
-        if 'composition' in high_use_results:
+        if 'composition' in high_use_results and 'overlap' in high_use_results:
             fig = viz.plot_composition_shift(
                 high_use_results['composition'],
-                title="Composition Shift: Weighted vs Unweighted Targeting"
+                jaccard_index=high_use_results['overlap']['jaccard_index'],
+                overlap_rate=high_use_results['overlap']['overlap_rate'],
+                title="Composition Shift: Weighted vs Unweighted Targeting (High-Use Score)"
             )
             viz.save_figure(fig, 'fig3_composition_shift.png', str(figures_dir))
     
-    # Figure 5: Residual vs HDD
+    # Figure 5: Residual vs HDD (FIXED: common y-axis, uncertainty bands, bin support)
     fig = viz.plot_residual_vs_hdd(
         y_true=df['TOTALBTUSPH'].values,
         y_pred=predictions,
@@ -441,10 +462,11 @@ def create_visualizations(df: pd.DataFrame,
     # CV Results
     if cv_results and 'cv_result' in cv_results:
         fold_metrics = cv_results['cv_result'].outer_metrics_by_fold
-        fig = viz.plot_cv_results(fold_metrics, title="Cross-Validation Results")
+        fig = viz.plot_cv_results(fold_metrics, model_name="LightGBM", 
+                                   title="Nested Cross-Validation Results")
         viz.save_figure(fig, 'cv_results.png', str(figures_dir))
     
-    # Error equity
+    # Error equity (FIXED: separate panels, nMAE, group sizes, no typos)
     if 'equity' in diagnostic_results:
         fig = viz.plot_error_equity(
             diagnostic_results['equity'],
@@ -463,42 +485,111 @@ def save_results(df: pd.DataFrame,
                  diagnostic_results: dict,
                  output_dir: str) -> None:
     """
-    Save all results to files.
+    Save all results to publication-quality tables.
+    
+    All tables:
+    - Remove spreadsheet artifacts (Unnamed columns)
+    - Replace codes with human-readable labels
+    - Declare weighted vs unweighted, out-of-sample vs in-sample
+    - Include metric definitions and units
     """
     print_section_header("SAVING RESULTS")
+    
+    from src.visualization.tables import (
+        create_table1_descriptives, create_uncertainty_table,
+        create_policy_targeting_table, create_composition_table,
+        create_equity_table, create_hdd_diagnostics_table,
+        save_table_with_note
+    )
     
     tables_dir = Path(output_dir) / 'tables'
     ensure_dir(str(tables_dir))
     
-    # Table 1: Technology group descriptives
-    if preprocessor.tech_group_stats_ is not None:
-        preprocessor.tech_group_stats_.to_csv(tables_dir / 'table1_tech_group_descriptives.csv')
+    # Table 1: Comprehensive technology group descriptives
+    table1 = create_table1_descriptives(df, df['NWEIGHT'])
+    save_table_with_note(
+        table1, 
+        str(tables_dir / 'table1_tech_group_descriptives.csv'),
+        "Table 1: Descriptive statistics by technology group. All statistics are weighted "
+        "using NWEIGHT unless otherwise noted."
+    )
+    print("\nTable 1: Technology Group Descriptives")
+    print(table1.to_string())
     
-    # Table 2: CV performance
+    # Table 2: CV performance (if available)
     if cv_results and 'cv_result' in cv_results:
-        cv_results['cv_result'].outer_metrics_by_fold.to_csv(tables_dir / 'table2_cv_performance.csv')
-    
-    # Table 3: Uncertainty
-    if uncertainty_results and 'uncertainty_df' in uncertainty_results:
-        uncertainty_results['uncertainty_df'].to_csv(tables_dir / 'table3_uncertainty.csv')
-    
-    # Policy results
-    if policy_results:
-        for score_name, results in policy_results.get('weighted_vs_unweighted', {}).items():
-            if 'composition' in results:
-                for group_name, comp_df in results['composition'].items():
-                    if comp_df is not None:
-                        comp_df.to_csv(tables_dir / f'policy_{score_name}_{group_name}.csv')
-    
-    # Diagnostics
-    if diagnostic_results:
-        if 'physics' in diagnostic_results and 'bias_by_hdd' in diagnostic_results['physics']:
-            diagnostic_results['physics']['bias_by_hdd'].to_csv(tables_dir / 'diagnostics_bias_by_hdd.csv')
+        fold_df = cv_results['cv_result'].outer_metrics_by_fold.copy()
+        fold_df = fold_df.loc[:, ~fold_df.columns.str.contains('^Unnamed')]
         
-        if 'equity' in diagnostic_results:
-            for name, equity_df in diagnostic_results['equity'].items():
-                if equity_df is not None:
-                    equity_df.to_csv(tables_dir / f'equity_{name}.csv')
+        # Add summary row
+        summary_row = {col: f"{fold_df[col].mean():.3f} ± {fold_df[col].std():.3f}" 
+                      for col in fold_df.columns if col != 'fold'}
+        summary_row['fold'] = 'Mean ± SD'
+        fold_df = pd.concat([fold_df, pd.DataFrame([summary_row])], ignore_index=True)
+        
+        save_table_with_note(
+            fold_df,
+            str(tables_dir / 'table2_cv_performance.csv'),
+            "Table 2: Nested CV performance (outer-fold, weighted metrics). "
+            "wRMSE and wMAE in kBTU. All metrics computed on out-of-sample predictions."
+        )
+    
+    # Table 3: Uncertainty with proper formatting
+    if uncertainty_results and 'uncertainty_df' in uncertainty_results:
+        table3 = create_uncertainty_table(uncertainty_results['uncertainty_df'])
+        save_table_with_note(
+            table3,
+            str(tables_dir / 'table3_uncertainty.csv'),
+            table3.attrs.get('note', '')
+        )
+    
+    # Policy targeting tables
+    if policy_results and 'weighted_vs_unweighted' in policy_results:
+        for score_name in ['high_use', 'high_intensity', 'excess_demand']:
+            if score_name in policy_results['weighted_vs_unweighted']:
+                # Summary table
+                summary_table = create_policy_targeting_table(policy_results, score_name)
+                if len(summary_table) > 0:
+                    save_table_with_note(
+                        summary_table,
+                        str(tables_dir / f'policy_{score_name}_summary.csv'),
+                        summary_table.attrs.get('note', '')
+                    )
+                
+                # Composition tables with human-readable labels
+                results = policy_results['weighted_vs_unweighted'][score_name]
+                if 'composition' in results:
+                    for group_name, comp_df in results['composition'].items():
+                        if comp_df is not None and len(comp_df) > 0:
+                            formatted_comp = create_composition_table(comp_df, group_name)
+                            save_table_with_note(
+                                formatted_comp,
+                                str(tables_dir / f'policy_{score_name}_{group_name}.csv'),
+                                f"Composition shift for {score_name} targeting by {group_name}. "
+                                "Representation Ratio = Share among candidates / Population share."
+                            )
+    
+    # Equity tables with normalized metrics
+    if diagnostic_results and 'equity' in diagnostic_results:
+        for name, equity_df in diagnostic_results['equity'].items():
+            if equity_df is not None and len(equity_df) > 0:
+                group_type = name.replace('by_', '')
+                formatted_equity = create_equity_table(equity_df, group_type)
+                save_table_with_note(
+                    formatted_equity,
+                    str(tables_dir / f'equity_{name}.csv'),
+                    formatted_equity.attrs.get('note', '')
+                )
+    
+    # HDD diagnostics with bin support
+    if diagnostic_results and 'physics' in diagnostic_results:
+        if 'bias_by_hdd' in diagnostic_results['physics']:
+            hdd_table = create_hdd_diagnostics_table(diagnostic_results['physics']['bias_by_hdd'])
+            save_table_with_note(
+                hdd_table,
+                str(tables_dir / 'diagnostics_bias_by_hdd.csv'),
+                hdd_table.attrs.get('note', '')
+            )
     
     logger.info(f"Saved all tables to {tables_dir}")
 

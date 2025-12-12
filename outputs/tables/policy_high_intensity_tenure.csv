@@ -1,4 +1,5 @@
-,tenure,share_weighted_candidates,share_unweighted_candidates,share_difference,population_share,n_in_group
-0,1,72.34249306098027,75.11337868480726,-2.7708856238269846,68.159294171242,12944
-1,2,26.02755876774545,23.46938775510204,2.5581710126434096,30.82458979878701,4516
-2,3,1.62994817127428,1.4172335600907031,0.21271461118357693,1.0161160299709826,171
+# Composition shift for high_intensity targeting by tenure. Representation Ratio = Share among candidates / Population share.
+Group,n (unweighted),Population Share (%),Weighted Share (%),Unweighted Share (%),Difference (pp),Representation Ratio
+Owned,12944,68.2,72.3,75.1,-2.8,1.1
+Rented,4516,30.8,26.0,23.5,2.6,0.8
+Occupied w/o Payment,171,1.0,1.6,1.4,0.2,1.6

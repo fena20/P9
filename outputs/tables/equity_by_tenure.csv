@@ -1,4 +1,5 @@
-,tenure,tenure_code,n_samples,total_weight,weighted_bias,weighted_mae,weighted_mean_true,bias_pct
-0,Owned,1,12944,79841299.78464967,-4883.415926619482,14038.56782302436,41935.745063988856,-11.64499621782797
-1,Rented,2,4516,36107699.541028894,-1747.0245724997492,7038.347822333053,17595.55106849911,-9.928785780556797
-2,Occupied without payment,3,171,1190270.90217626,-5011.963616242003,11491.157269076666,35324.87897698307,-14.188197557612838
+# Bias = weighted mean(Ŷ − Y). nMAE = MAE / mean(Y) × 100. All metrics computed on outer-fold predictions with NWEIGHT.
+Group,n,Mean Observed (kBTU),Bias (kBTU),MAE (kBTU),Bias (%),nMAE (%)
+Owned,12944,41936,-4883,14039,-11.6,33.5
+Rented,4516,17596,-1747,7038,-9.9,40.0
+Occupied without payment,171,35325,-5012,11491,-14.2,32.5

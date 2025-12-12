@@ -344,10 +344,18 @@ class PolicyTargeting:
 class TargetingUncertainty:
     """
     Uncertainty quantification for policy targeting using replicate weights.
+    
+    Computes 95% CIs for:
+    - Jaccard index
+    - Overlap rate
+    - Subgroup shares
+    - Threshold values
     """
     
-    def __init__(self, n_replicates: int = 60):
+    def __init__(self, n_replicates: int = 60, confidence_level: float = 0.95):
         self.n_replicates = n_replicates
+        self.confidence_level = confidence_level
+        self.z_score = 1.96 if confidence_level == 0.95 else 1.645
         
     def compute_targeting_uncertainty(self,
                                        scores: np.ndarray,

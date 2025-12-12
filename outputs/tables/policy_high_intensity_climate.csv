@@ -1,6 +1,7 @@
-,climate,share_weighted_candidates,share_unweighted_candidates,share_difference,population_share,n_in_group
-0,cold,28.14771449017483,31.746031746031743,-3.5983172558569123,13.11759221549751,3125
-1,mild,8.111568807676234,6.6893424036281175,1.422226404048116,23.49699044636439,3971
-2,moderate,57.32248918726841,44.50113378684807,12.821355400420337,38.26491966165592,6597
-3,very_cold,6.0756047390417,16.780045351473923,-10.704440612432222,1.6119620416600822,872
-4,very_mild,0.3426227758388367,0.2834467120181406,0.05917606382069612,23.50853563482209,3066
+# Composition shift for high_intensity targeting by climate. Representation Ratio = Share among candidates / Population share.
+Group,n (unweighted),Population Share (%),Weighted Share (%),Unweighted Share (%),Difference (pp),Representation Ratio
+cold,3125,13.1,28.1,31.7,-3.6,2.2
+mild,3971,23.5,8.1,6.7,1.4,0.4
+moderate,6597,38.3,57.3,44.5,12.8,1.5
+very_cold,872,1.6,6.1,16.8,-10.7,3.8
+very_mild,3066,23.5,0.3,0.3,0.1,0.0

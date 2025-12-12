@@ -1,6 +1,7 @@
-,housing_type,share_weighted_candidates,share_unweighted_candidates,share_difference,population_share,n_in_group
-0,1,0.769519143101794,0.7936507936507936,-0.024131650548999573,5.569643975800034,937
-1,2,95.78044738111173,95.80498866213152,-0.02454128101979336,63.52963596942078,11872
-2,3,1.973654406298285,2.8344671201814062,-0.8608127138831212,5.970019263470672,1662
-3,4,1.4763790694882044,0.5668934240362812,0.9094856454519232,7.459725142671125,949
-4,5,0.0,0.0,0.0,17.47097564863738,2211
+# Composition shift for high_use targeting by housing_type. Representation Ratio = Share among candidates / Population share.
+Group,n (unweighted),Population Share (%),Weighted Share (%),Unweighted Share (%),Difference (pp),Representation Ratio
+Mobile Home,937,5.6,0.8,0.8,-0.0,0.1
+Single-Family Detached,11872,63.5,95.8,95.8,-0.0,1.5
+Single-Family Attached,1662,6.0,2.0,2.8,-0.9,0.3
+Apartment (2-4 units),949,7.5,1.5,0.6,0.9,0.2
+Apartment (5+ units),2211,17.5,0.0,0.0,0.0,0.0
