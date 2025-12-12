@@ -294,7 +294,8 @@ def run_policy_analysis(df: pd.DataFrame,
 
 def run_uncertainty_quantification(df: pd.DataFrame,
                                     predictions: np.ndarray,
-                                    cv_results: dict) -> dict:
+                                    cv_results: dict,
+                                    is_outer_fold: bool = True) -> dict:
     """
     Step 7: Uncertainty quantification.
     
@@ -332,7 +333,8 @@ def run_uncertainty_quantification(df: pd.DataFrame,
     
     return {
         'uncertainty_df': uncertainty_df,
-        'jackknife': jackknife
+        'jackknife': jackknife,
+        'is_outer_fold': is_outer_fold
     }
 
 
@@ -538,10 +540,18 @@ def save_results(df: pd.DataFrame,
     # Table 3: Uncertainty with proper formatting
     if uncertainty_results and 'uncertainty_df' in uncertainty_results:
         table3 = create_uncertainty_table(uncertainty_results['uncertainty_df'])
+        # Use correct note based on whether CV was run
+        is_oof = uncertainty_results.get('is_outer_fold', False)
+        sample_type = "outer-fold test predictions" if is_oof else "in-sample predictions (CV skipped)"
+        note = (
+            f"All metrics computed on {sample_type} with NWEIGHT. "
+            "SE and 95% CI from RECS replicate-weight jackknife (n=60). "
+            "MAPE excluded (unstable for small denominators)."
+        )
         save_table_with_note(
             table3,
             str(tables_dir / 'table3_uncertainty.csv'),
-            table3.attrs.get('note', '')
+            note
         )
     
     # Policy targeting tables
@@ -635,6 +645,7 @@ def main():
         if not args.skip_cv:
             cv_results = run_nested_cv(df, feature_builder, config, args.n_outer_folds)
             predictions = cv_results['predictions']
+            is_outer_fold = True  # Proper outer-fold out-of-sample predictions
         else:
             logger.info("Skipping nested CV (--skip-cv flag)")
             # Use simple train/predict for testing
@@ -650,12 +661,14 @@ def main():
             predictions[X_test.index] = model.predict(X_test_t)
             predictions[X_train.index] = model.predict(X_train_t)
             cv_results = None
+            is_outer_fold = False  # In-sample predictions (CV skipped)
         
         # Step 6: Policy analysis
         policy_results = run_policy_analysis(df, predictions, baseline_predictions)
         
         # Step 7: Uncertainty quantification
-        uncertainty_results = run_uncertainty_quantification(df, predictions, cv_results)
+        uncertainty_results = run_uncertainty_quantification(df, predictions, cv_results, 
+                                                              is_outer_fold=is_outer_fold)
         
         # Step 8: Diagnostics
         diagnostic_results = run_diagnostics(df, predictions, cv_results)

@@ -1,4 +1,4 @@
-# All metrics computed on outer-fold test predictions with NWEIGHT. SE and 95% CI from RECS replicate-weight jackknife (n=60). MAPE excluded (unstable for small denominators); WAPE and nMAE used instead.
+# All metrics computed on in-sample predictions (CV skipped) with NWEIGHT. SE and 95% CI from RECS replicate-weight jackknife (n=60). MAPE excluded (unstable for small denominators).
 Metric,Estimate,SE,95% CI,Unit
 wRMSE,"20,852",330,"[20,204, 21,499]",kBTU
 wMAE,"11,855",106,"[11,647, 12,063]",kBTU
