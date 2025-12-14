@@ -1,0 +1,668 @@
+# پاسخ به ۱۹۵ سؤال دفاعی پروژه مدل‌سازی تقاضای گرمایش مسکونی
+# RECS 2020 Heating Demand Modeling Framework
+# تاریخ: دسامبر ۲۰۲۴
+
+================================================================================
+بخش A: سؤال‌های ابتدایی (فهم مسئله و دامنه)
+================================================================================
+
+سؤال ۱: دقیقاً مسئله‌ی شما چیست و چرا برای انرژی/سیاست مهم است؟
+پاسخ: مسئله پیش‌بینی مصرف انرژی گرمایش فضایی مسکونی با استفاده از داده‌های پیمایشی RECS 2020 است. اهمیت سیاستی: برنامه‌های retrofit و یارانه انرژی نیاز به شناسایی دقیق خانوارهای پرمصرف دارند. اگر مدل bias سیستماتیک داشته باشد (مثلاً کم‌برآوردی در اقلیم سرد)، خانوارهای واقعاً نیازمند از هدف‌گذاری جا می‌مانند.
+
+سؤال ۲: خروجی نهایی پروژه چیست: مدل پیش‌بینی؟ چارچوب ارزیابی؟ ابزار هدف‌گذاری؟ یا هر سه؟
+پاسخ: هر سه. (۱) مدل‌های پیش‌بینی technology-split با قیود فیزیکی، (۲) چارچوب ارزیابی شامل nested CV با متریک‌های وزنی و عدم‌قطعیت jackknife، (۳) ابزار هدف‌گذاری سیاستی با مقایسه weighted vs unweighted و امتیازهای سیاستی (high-use, high-intensity, excess-demand).
+
+سؤال ۳: چرا RECS 2020 و نه سال‌های دیگر؟
+پاسخ: RECS 2020 جدیدترین نسخه با microdata کامل است. نسخه‌های قبلی (2015, 2009) قدیمی‌تر و سهم پمپ حرارتی کمتر بود. RECS 2020 اولین بار سهم قابل توجه heat pump را دارد.
+
+سؤال ۴: اگر داور بگوید «2020 سال غیرعادی است»، پاسخ شما چیست؟
+پاسخ: صحیح است. ما COVID indicators (TELLWORK, ATHOME) را به عنوان control وارد کرده‌ایم. در sensitivity analysis نشان می‌دهیم حذف این متغیرها چه اثری دارد. در limitation صریحاً می‌نویسیم: "Results reflect 2020 occupancy patterns; recalibration may be needed for post-pandemic applications."
+
+سؤال ۵: هدف شما پیش‌بینی مصرف در 2020 است یا تعمیم به سال‌های معمول؟
+پاسخ: هدف اصلی پیش‌بینی cross-sectional در 2020 است (چه خانوارهایی پرمصرف‌اند). تعمیم به سال‌های دیگر نیاز به بررسی stability دارد که beyond scope این مقاله است.
+
+سؤال ۶: تفاوت بین "مدل علمی" و "مدل سیاستی" در کار شما چیست؟
+پاسخ: مدل علمی: بهترین پیش‌بینی (minimize RMSE). مدل سیاستی: بهترین ranking برای هدف‌گذاری (Top 10% درست باشد). ممکن است مدلی RMSE بهتر داشته باشد ولی ranking بدتری بدهد.
+
+سؤال ۷: چرا تمرکز روی گرمایش فضایی مسکونی است و نه کل انرژی ساختمان؟
+پاسخ: (۱) گرمایش فضایی بزرگ‌ترین end-use در مناطق سرد است (~40-60% مصرف). (۲) retrofit سیاستی (عایق، پنجره) مستقیماً روی گرمایش اثر دارد. (۳) RECS تخمین end-use جداگانه دارد.
+
+سؤال ۸: کدام خروجی برای مقاله "main claim" است و کدام "supporting"?
+پاسخ: Main claim: H2 (وزن‌دهی ترکیب هدف‌گذاری را تغییر می‌دهد). Supporting: H1 (split بهتر از monolithic) و H3 (عدم‌قطعیت دفاع‌پذیر).
+
+سؤال ۹: دقیقاً "policy-oriented" را چگونه operational کرده‌اید؟
+پاسخ: با (۱) تعریف امتیازهای سیاستی (high-use, high-intensity, excess-demand)، (۲) مقایسه weighted vs unweighted targeting، (۳) گزارش composition shifts (چه کسانی از هدف‌گذاری جا می‌مانند)، (۴) equity audit (خطا در گروه‌های آسیب‌پذیر).
+
+سؤال ۱۰: چرا این کار باید در Applied Energy چاپ شود و نه یک ژورنال ML؟
+پاسخ: چون contribution اصلی policy-oriented است نه algorithmic. ما الگوریتم جدید نداریم؛ نشان می‌دهیم تصمیمات روش‌شناختی (وزن‌دهی، تفکیک فناوری) چگونه نتایج سیاستی را تغییر می‌دهند.
+
+================================================================================
+بخش B: سؤال‌های فرضیه‌ها، ادعاها، و قابلیت آزمون‌پذیری
+================================================================================
+
+سؤال ۱۱: H1 دقیقاً چه می‌گوید و معیار موفقیتش چیست؟
+پاسخ: H1: مدل‌های technology-split نسبت به monolithic هم دقت بالاتر (Δ wRMSE > 0) و هم سازگاری فیزیکی بهتر (حساسیت HDD در جهت درست) دارند. معیار: Δ wRMSE با 95% CI که صفر را شامل نباشد.
+
+سؤال ۱۲: H2 دقیقاً چه می‌گوید و معیار موفقیتش چیست؟
+پاسخ: H2: استفاده از وزن‌های پیمایشی ترکیب جمعیتی لیست هدف (Top 10%) را معنی‌دار تغییر می‌دهد. معیار: Equal-budget Jaccard < 0.8 و composition shift معنی‌دار در حداقل یک بعد (income, geography, climate).
+
+سؤال ۱۳: H3 دقیقاً چه می‌گوید و معیار موفقیتش چیست؟
+پاسخ: H3: nested CV + replicate weights عدم‌قطعیت دفاع‌پذیری تولید می‌کند. معیار: CIها coverage معقول داشته باشند و refit-sensitivity gap کوچک باشد (metric-only jackknife کافی است).
+
+سؤال ۱۴: آیا فرضیه‌ها از پیش ثبت شده‌اند یا پس از دیدن نتایج تنظیم شده‌اند؟
+پاسخ: فرضیه‌ها در طرح اولیه (proposal) تعریف شده‌اند. اما معیارهای عددی دقیق (مثلاً Jaccard < 0.8) پس از دیدن توزیع داده تنظیم شده‌اند. این را صریحاً در متن می‌گوییم.
+
+سؤال ۱۵: اگر H1 بهتر شد ولی H2 تغییری نکرد، نتیجه‌گیری شما چیست؟
+پاسخ: می‌گوییم تفکیک فناوری برای دقت مفید است ولی برای سیاست‌گذاری neutral. این هم یک نتیجه علمی معتبر است.
+
+سؤال ۱۶: اگر H2 تغییر کرد ولی خطا بدتر شد، از نظر سیاستی کدام را ترجیح می‌دهید؟
+پاسخ: بستگی به اندازه trade-off دارد. اگر خطا کمی بدتر شود ولی equity بهتر شود، ممکن است policy-preferable باشد. این تصمیم باید با stakeholder گرفته شود.
+
+سؤال ۱۷: آیا این سه فرضیه مستقل‌اند یا وابسته؟
+پاسخ: تا حدی وابسته. H1 پیش‌نیاز ارزیابی H2 است (اگر مدل بد باشد، targeting هم بی‌معنی است). H3 روی هر دو اعمال می‌شود.
+
+سؤال ۱۸: کدام نتایج می‌تواند فرضیه‌ها را falsify کند؟
+پاسخ: H1 falsified: اگر Δ wRMSE ≤ 0 با CI شامل صفر. H2 falsified: اگر Equal-budget Jaccard > 0.95. H3 falsified: اگر refit-sensitivity gap > 50% of metric-only SE.
+
+سؤال ۱۹: آیا معیارهای "فیزیکی" شما از پیش تعریف شده‌اند؟
+پاسخ: بله. معیارها: (۱) حساسیت HDD مثبت، (۲) نرخ پیش‌بینی منفی < 1%، (۳) cold-climate bias < 30%. اینها در طرح اولیه بودند.
+
+سؤال ۲۰: در متن مقاله ادعاهای شما در چه سطحی خواهند بود؟
+پاسخ: Association نه causation. می‌گوییم "households with X characteristics are predicted to have higher demand" نه "X causes higher demand".
+
+================================================================================
+بخش C: سؤال‌های داده RECS 2020 و ماهیت هدف
+================================================================================
+
+سؤال ۲۱: متغیر هدف شما دقیقاً چیست؟
+پاسخ: TOTALBTUSPH - تخمین مصرف انرژی گرمایش فضایی به kBTU در سال.
+
+سؤال ۲۲: واحد هدف چیست و چرا آن واحد را انتخاب کردید؟
+پاسخ: kBTU (هزار BTU). چون واحد استاندارد RECS است و با سیاست‌گذاری آمریکا سازگار است.
+
+سؤال ۲۳: آیا هدف شما "metered" است یا "estimated end-use"؟
+پاسخ: Estimated end-use. EIA از ترکیب survey + supplier data + مدل‌های تخصیص استفاده می‌کند. پیامد: نویز بالاتر و ceiling روی R² قابل دستیابی.
+
+سؤال ۲۴: در RECS 2020 گرمایش فضایی چگونه تولید شده؟
+پاسخ: EIA از روش‌های تخصیص end-use استفاده می‌کند که شامل مدل‌های رگرسیون، داده‌های تأمین‌کننده، و اطلاعات survey است. این یک تخمین است نه اندازه‌گیری مستقیم.
+
+سؤال ۲۵: آیا هدف شما شامل سوخت‌های مختلف در یک عدد است؟
+پاسخ: بله. TOTALBTUSPH مجموع همه سوخت‌هاست (gas, electric, oil, propane). تبدیل به BTU این امکان را می‌دهد.
+
+سؤال ۲۶: توزیع هدف چقدر heavy-tail است؟
+پاسخ: بسیار heavy-tail. CV ≈ 76-127% بسته به فناوری. top 10% حدود 35% کل مصرف را دارند.
+
+سؤال ۲۷: آیا صفر یا مقادیر منفی در هدف دارید؟
+پاسخ: مقادیر نزدیک صفر بله (خانه‌های گرم یا no-heating). منفی خیر. صفرها در گروه "no_heating" جدا شده‌اند.
+
+سؤال ۲۸: outlierها را چه کرده‌اید؟
+پاسخ: حذف نکرده‌ایم. از Tweedie objective استفاده کرده‌ایم که به tail robust است. در analysis هم tail bias را جداگانه گزارش می‌کنیم.
+
+سؤال ۲۹: چه سهمی از داده حذف شده؟
+پاسخ: حدود 2% (گروه no_heating و missing در متغیرهای کلیدی). نمایندگی با وزن‌ها حفظ می‌شود.
+
+سؤال ۳۰: حد بالای قابل انتظار برای R² چقدر است؟
+پاسخ: با توجه به نویز end-use estimation، حدود 0.5-0.6 واقع‌بینانه است. ما wR² ≈ 0.47 داریم که در این محدوده است.
+
+================================================================================
+بخش D: سؤال‌های وزن‌دهی پیمایشی و replicate weights
+================================================================================
+
+سؤال ۳۱: NWEIGHT دقیقاً چیست؟
+پاسخ: وزن نهایی پیمایش که هر خانوار نمونه را به جمعیت بسط می‌دهد. شامل adjustments برای non-response و post-stratification.
+
+سؤال ۳۲: replicate weights چه نوعی‌اند؟
+پاسخ: RECS از روش jackknife (successive difference replication) استفاده می‌کند. 60 وزن replicate برای variance estimation.
+
+سؤال ۳۳: تفاوت "design-based" و "model-based" inference چیست؟
+پاسخ: Design-based: عدم‌قطعیت از نمونه‌گیری می‌آید (replicate weights). Model-based: عدم‌قطعیت از مدل می‌آید (cross-validation). ما هر دو را ترکیب کرده‌ایم.
+
+سؤال ۳۴: وزن‌ها را کجا استفاده کرده‌اید؟
+پاسخ: هر سه: آموزش (sample_weight در LightGBM)، ارزیابی (weighted metrics)، و هدف‌گذاری (weighted percentiles).
+
+سؤال ۳۵: اگر فقط در ارزیابی وزن بدهید چه تغییر می‌کند؟
+پاسخ: متریک‌ها جمعیت‌نماینده می‌شوند ولی مدل روی نمونه غیروزنی optimize شده. ممکن است گروه‌های کم‌نمونه underfitted باشند.
+
+سؤال ۳۶: اگر فقط در آموزش وزن بدهید چه تغییر می‌کند؟
+پاسخ: مدل جمعیت‌محور می‌شود ولی ارزیابی نمونه‌ای می‌ماند. ممکن است performance ظاهراً بدتر شود ولی واقعاً بهتر باشد.
+
+سؤال ۳۷: چرا در سیاست "Top10%" را وزنی تعریف کرده‌اید؟
+پاسخ: چون سیاست‌گذار به 10% جمعیت اهمیت می‌دهد نه 10% نمونه. اگر نمونه‌گیری stratified است، 10% نمونه ≠ 10% جمعیت.
+
+سؤال ۳۸: در equal-budget چرا وزن‌دهی لیست را تغییر می‌دهد؟
+پاسخ: چون ranking تغییر می‌کند. خانواری که در نمونه کم‌وزن است ممکن است rank بالاتری بگیرد وقتی وزن می‌دهیم (چون نماینده جمعیت بزرگ‌تری است).
+
+سؤال ۳۹: آیا replicate weights روی fold شده هم معتبرند؟
+پاسخ: تقریباً. چون folds بزرگ‌اند (80% train)، ساختار نمونه‌گیری تقریباً حفظ می‌شود. این یک approximation است که در متن ذکر می‌کنیم.
+
+سؤال ۴۰: آیا cross-fitted prediction در کل نمونه ساخته‌اید؟
+پاسخ: بله. outer-fold predictions برای هر observation یک‌بار (در fold که test بوده) تولید شده و سپس replicate weights روی کل اعمال شده.
+
+================================================================================
+بخش E: سؤال‌های گروه‌بندی فناوری
+================================================================================
+
+سؤال ۴۱: چرا تفکیک فناوری ضروری است؟
+پاسخ: چون رابطه فیزیکی بین HDD و مصرف بسته به فناوری متفاوت است. پمپ حرارتی COP variable دارد؛ combustion efficiency ثابت‌تر است.
+
+سؤال ۴۲: قوانین تخصیص به گروه‌ها چیست؟
+پاسخ: براساس EQUIPM (primary heating equipment): Codes 2,4,7,8,9 → Combustion; 5,11 → Heat Pump; 6,10 → Resistance; 3,12 → Hybrid; -2 → No Heating.
+
+سؤال ۴۳: اگر سیستم و سوخت ناسازگار باشند چه می‌کنید؟
+پاسخ: به Hybrid/Ambiguous تخصیص می‌دهیم. این گروه برای موارد مشکوک است.
+
+سؤال ۴۴: گروه هیبرید را چرا جدا کرده‌اید؟
+پاسخ: چون مخلوط سیستم‌ها (مثلاً furnace+HP) رفتار غیرقابل پیش‌بینی دارد. جداسازی باعث می‌شود گروه‌های اصلی clean بمانند.
+
+سؤال ۴۵: سهم هیبریدها چقدر است؟
+پاسخ: حدود 14% جمعیت (2186 نمونه). حذف‌شان bias ایجاد می‌کند پس نگه داشته‌ایم.
+
+سؤال ۴۶: چرا پمپ حرارتی و مقاومت را جدا کرده‌اید؟
+پاسخ: پمپ حرارتی COP > 1 دارد (2-4 معمولاً) پس per-kWh کمتر مصرف می‌کند. Resistance COP = 1. رابطه با HDD هم متفاوت است.
+
+سؤال ۴۷: آیا فناوری با اقلیم هم‌بسته است؟
+پاسخ: بله. Heat pump در جنوب بیشتر است (HDD پایین). Combustion در شمال. این confounding را با stratification مدیریت کرده‌ایم.
+
+سؤال ۴۸: آیا تفکیک فناوری overfitting نمی‌کند؟
+پاسخ: ریسک وجود دارد. گروه کوچک‌ترین (Resistance) 1376 نمونه دارد که کافی است. اگر کمتر بود، pooling می‌کردیم.
+
+سؤال ۴۹: برای هر گروه مدل جدا آموزش داده‌اید؟
+پاسخ: بله. این "technology-split" است. alternative (یک مدل با tech feature) را هم تست کردیم؛ split بهتر بود.
+
+سؤال ۵۰: اگر گروه خیلی کوچک باشد چه می‌کنید؟
+پاسخ: در این پروژه لازم نشد. اگر n < 500 بود، hierarchical pooling یا merge با نزدیک‌ترین گروه انجام می‌دادیم.
+
+================================================================================
+بخش F: سؤال‌های ویژگی‌ها و کووید
+================================================================================
+
+سؤال ۵۱: ویژگی‌های کلیدی برای تقاضای گرمایش چیست؟
+پاسخ: HDD65, TOTSQFT_EN (area), YEARMADERANGE (vintage), ADQINSUL (insulation), NUMPEOPLE (occupancy), Division (geography).
+
+سؤال ۵۲: کدام ویژگی‌ها ساختمان‌محورند؟
+پاسخ: ساختمان: Area, Vintage, Insulation, Windows, Housing Type. رفتار: Occupancy, WFH, Thermostat settings.
+
+سؤال ۵۳: کووید را چگونه مدل کرده‌اید؟
+پاسخ: با proxy: TELLWORK (telework frequency) و ATHOME (daytime at home). اینها COVID-era occupancy را capture می‌کنند.
+
+سؤال ۵۴: چرا تعامل HDD×WFH معنی‌دار است؟
+پاسخ: چون اگر کسی بیشتر خانه باشد (WFH) و HDD بالا باشد، گرمایش بیشتری لازم است. این interaction physics-motivated است.
+
+سؤال ۵۵: اگر COVID variables missing داشته باشند چه می‌کنید؟
+پاسخ: Missing را به category جدا تبدیل کرده‌ایم (LightGBM خودش handle می‌کند). نرخ missing کم است (<5%).
+
+سؤال ۵۶: آیا COVID باعث leakage غیرمستقیم می‌شود؟
+پاسخ: خیر. TELLWORK و ATHOME از behavior قبل از bill measurement هستند (survey timing). این exogenous است.
+
+سؤال ۵۷: آیا "درآمد" را feature آورده‌اید؟
+پاسخ: بله (MONEYPY). استفاده نکردن از income هم bias ایجاد می‌کند. در equity audit بررسی کرده‌ایم که income باعث disparate impact نمی‌شود.
+
+سؤال ۵۸: آیا متغیرهای retrofit کیفیت خوب دارند؟
+پاسخ: متوسط. ADQINSUL self-reported است و ممکن است noisy باشد. YEARMADERANGE proxy خوبی برای envelope quality است.
+
+سؤال ۵۹: "Area" را چگونه تعریف کرده‌اید؟
+پاسخ: TOTSQFT_EN = total square footage of heated/cooled area. این self-reported است و خطای اندازه‌گیری دارد.
+
+سؤال ۶۰: اقلیم را چگونه گرفته‌اید؟
+پاسخ: هم HDD65 (continuous) و هم Census Division (categorical). HDD اثر فیزیکی دارد؛ Division heterogeneity منطقه‌ای را capture می‌کند.
+
+================================================================================
+بخش G: سؤال‌های Leakage
+================================================================================
+
+سؤال ۶۱: تعریف شما از leakage چیست؟
+پاسخ: هر اطلاعاتی که از target یا آینده به features نشت کند. مثال: استفاده از total energy expenditure که شامل heating است.
+
+سؤال ۶۲: آیا هر متغیر هزینه را حذف کرده‌اید؟
+پاسخ: بله. DOLLARSPH, DOLLAREL, و همه bill-related variables در blacklist هستند.
+
+سؤال ۶۳: اگر مصرف کل انرژی خانه را داشته باشید مجاز است؟
+پاسخ: خیر. TOTALBTU شامل heating است و leakage دارد. حذف شده.
+
+سؤال ۶۴: اگر "heater usage frequency" داشته باشید نشت است؟
+پاسخ: خیر، اگر از survey question باشد (رفتار reported). ولی اگر از actual usage data باشد بله. RECS دومی را ندارد.
+
+سؤال ۶۵: آیا متغیرهای مشتق بعد از دیدن هدف ساخته‌اید؟
+پاسخ: خیر. همه features از raw RECS variables هستند. binning فقط برای stratification استفاده شده (نه feature).
+
+سؤال ۶۶: آیا preprocessing داخل inner loop است؟
+پاسخ: بله. FeatureBuilder.fit_transform روی train هر fold فراخوانی می‌شود. در کد دقیقاً مشخص است.
+
+سؤال ۶۷: آیا calibrator روی test یاد گرفته؟
+پاسخ: خیر. IsotonicRegression روی training data هر fold فیت می‌شود و سپس روی test transform می‌شود.
+
+سؤال ۶۸: آیا feature selection داشته‌اید؟
+پاسخ: خیر در مدل اصلی. Features از domain knowledge انتخاب شده‌اند نه data-driven selection.
+
+سؤال ۶۹: "HDD bins" در stratify از کجا استخراج شده؟
+پاسخ: از کل داده قبل از split. این قابل قبول است چون HDD exogenous است (از climate data) نه از target.
+
+سؤال ۷۰: چگونه مطمئن هستید household در train و test نیست؟
+پاسخ: هر DOEID یکتاست. split براساس observation است و RECS تکرار household ندارد.
+
+================================================================================
+بخش H: سؤال‌های Nested CV
+================================================================================
+
+سؤال ۷۱: چرا Nested CV لازم است؟
+پاسخ: برای جلوگیری از data leakage در hyperparameter tuning. بدون آن، performance روی test overestimate می‌شود.
+
+سؤال ۷۲: outer=5, inner=3 چرا انتخاب شده؟
+پاسخ: Trade-off بین variance (بیشتر fold = کمتر variance) و computation time. با ~18k نمونه، 5×3 معقول است.
+
+سؤال ۷۳: stratify روی چه کلیدهایی است؟
+پاسخ: Division × Tech_Group × HDD_bin (3 bins). این تضمین می‌کند هر fold نماینده همه ترکیبات باشد.
+
+سؤال ۷۴: اگر یک stratum خیلی کم شود چه می‌کنید؟
+پاسخ: sklearn's StratifiedKFold این را handle می‌کند (حداقل یک نمونه در هر fold). اگر n < 5، merge می‌کنیم.
+
+سؤال ۷۵: معیار انتخاب ابرپارامتر چیست؟
+پاسخ: wRMSE (weighted RMSE) چون policy-relevant است و با target weighting سازگار.
+
+سؤال ۷۶: برای heavy-tail، MAE بهتر نیست؟
+پاسخ: ممکن است. در sensitivity می‌توان test کرد. RMSE برای point prediction معمول‌تر است.
+
+سؤال ۷۷: آیا از early stopping استفاده کرده‌اید؟
+پاسخ: بله. LightGBM با early_stopping_rounds=50 روی validation set.
+
+سؤال ۷۸: آیا seedها ثابت‌اند؟
+پاسخ: بله. random_state=42 در همه جا. reproducibility تضمین شده.
+
+سؤال ۷۹: آیا outer folds ثابت‌اند یا تکرار شده‌اند؟
+پاسخ: ثابت با seed. تکرار نکرده‌ایم ولی replicate weights variance را capture می‌کند.
+
+سؤال ۸۰: آیا نتایج به fold حساس است؟
+پاسخ: بله تا حدی. SD across folds برای wRMSE حدود 1000 kBTU است. این در CI گزارش شده.
+
+================================================================================
+بخش I: سؤال‌های مدل‌ها و قیود فیزیکی
+================================================================================
+
+سؤال ۸۱: چرا LightGBM مدل اصلی است؟
+پاسخ: سریع، دقیق، handle missing values، پشتیبانی از sample_weight، monotonic constraints، و objective functions متنوع (Tweedie).
+
+سؤال ۸۲: چرا EBM را آورده‌اید؟
+پاسخ: برای interpretability. EBM shape functions نشان می‌دهد اثر هر feature چطور است. این "falsification" فیزیکی را ممکن می‌کند.
+
+سؤال ۸۳: baseline فیزیکی دقیقاً چیست؟
+پاسخ: Ridge regression با features: HDD × Area و Area. این ساده‌ترین مدل physics-based است.
+
+سؤال ۸۴: آیا baseline در هر فناوری جداست؟
+پاسخ: بله. چون slope HDD متفاوت است (heat pump کمتر از combustion به ازای هر HDD مصرف می‌کند).
+
+سؤال ۸۵: non-negativity را چگونه تضمین کرده‌اید؟
+پاسخ: با Tweedie objective (power=1.5) که ذاتاً non-negative است. پس از prediction هم clamp به صفر داریم (safety check).
+
+سؤال ۸۶: اگر log-transform دارید، bias برگشت چگونه اصلاح شده؟
+پاسخ: از log1p استفاده نکرده‌ایم. Tweedie مستقیماً روی scale اصلی کار می‌کند.
+
+سؤال ۸۷: قیود یکنوایی روی چه featureهایی اعمال شده؟
+پاسخ: HDD (مثبت) و TOTSQFT_EN (مثبت). این physics-motivated است.
+
+سؤال ۸۸: آیا monotonic constraint bias ایجاد می‌کند؟
+پاسخ: اگر رابطه واقعی non-monotonic باشد، بله. در EBM بررسی کردیم که HDD و Area تقریباً monotonic هستند.
+
+سؤال ۸۹: ablation با/بدون قید چه نشان داد؟
+پاسخ: با قید، physics plausibility بهتر (کمتر wrong-direction HDD). RMSE کمی بالاتر (~2%). trade-off قابل قبول.
+
+سؤال ۹۰: چرا CatBoost را کنار گذاشتید؟
+پاسخ: LightGBM سریع‌تر بود و نتایج مشابه داشت. CatBoost برای categoricals خوب است ولی ما ordinal handling خاصی نداشتیم.
+
+================================================================================
+بخش J: سؤال‌های کالیبراسیون و tail
+================================================================================
+
+سؤال ۹۱: calibrator روی چه داده‌ای فیت می‌شود؟
+پاسخ: روی training data هر fold. دقیقاً: پس از fit مدل، predictions روی train تولید شده و isotonic روی (y_pred, y_true) فیت شده.
+
+سؤال ۹۲: calibrator را per-tech فیت کرده‌اید یا global؟
+پاسخ: Global در پیاده‌سازی فعلی. per-tech می‌تواند بهتر باشد ولی risk overfitting در گروه‌های کوچک.
+
+سؤال ۹۳: آیا isotonic در tail overfit می‌کند؟
+پاسخ: ممکن است. چون tail کم‌نمونه است. out_of_bounds='clip' استفاده کرده‌ایم برای extrapolation امن.
+
+سؤال ۹۴: اثر calibration روی متریک‌ها چیست؟
+پاسخ: wBias بهتر شد (از -7100 به -5977). wRMSE تغییر کمی داشت. Calibration slope از 0.51 به ~0.70 رسید.
+
+سؤال ۹۵: اثر calibration روی policy چیست؟
+پاسخ: Ranking تغییر می‌کند. Jaccard قبل/بعد از calibration حدود 0.85-0.90 است (تغییر معنی‌دار ولی نه بزرگ).
+
+سؤال ۹۶: بعد از calibration هنوز cold bias منفی است؟
+پاسخ: بله. -21% برای HDD≥6k (بهبود از -25% قبل از calibration). کاملاً رفع نشده.
+
+سؤال ۹۷: tail bias بعد از calibration چقدر شد؟
+پاسخ: Combustion: -47% (قبلاً -55%). بهبود ولی هنوز قابل توجه. این limitation اصلی است.
+
+سؤال ۹۸: آیا calibration نقض فیزیکی جدید ایجاد کرده؟
+پاسخ: در بررسی ما خیر. Isotonic monotonic است پس ranking را خراب نمی‌کند.
+
+سؤال ۹۹: اگر calibrator حذف شود H2 پابرجاست؟
+پاسخ: بله. Equal-budget Jaccard بدون calibration هم 0.35-0.40 است. پیام H2 تغییر نمی‌کند.
+
+سؤال ۱۰۰: چرا calibration را post-processing انتخاب کردید؟
+پاسخ: سادگی پیاده‌سازی. End-to-end با quantile loss هم می‌شد ولی پیچیده‌تر و hyperparameter بیشتر.
+
+================================================================================
+بخش K: سؤال‌های ممیزی فیزیکی
+================================================================================
+
+سؤال ۱۰۱: معیار "wrong HDD sensitivity" چیست؟
+پاسخ: اگر در EBM یا residual analysis، slope HDD منفی باشد یا correlation HDD-residual مثبت شدید باشد.
+
+سؤال ۱۰۲: آیا در EBM اثر HDD همیشه مثبت است؟
+پاسخ: تقریباً. در Combustion و Resistance بله. در Heat Pump در HDD خیلی بالا flatten می‌شود (COP drop).
+
+سؤال ۱۰۳: residual vs HDD را چگونه باین‌بندی کرده‌اید؟
+پاسخ: 5 bins: 0-2k, 2-4k, 4-6k, 6-8k, 8k+. این cover کل range HDD در US را می‌کند.
+
+سؤال ۱۰۴: بایاس cold climates از misspecification است یا measurement error؟
+پاسخ: احتمالاً هر دو. (۱) مدل tail را underpredict می‌کند (misspecification). (۲) RECS end-use noise در cold بیشتر است.
+
+سؤال ۱۰۵: اثر عایق/قدمت در EBM منطقی است؟
+پاسخ: بله. ADQINSUL="adequate" → کمتر مصرف. YEARMADE جدیدتر → کمتر مصرف. این physics-consistent است.
+
+سؤال ۱۰۶: interaction بین HDD و area/insulation بررسی شده؟
+پاسخ: EBM ذاتاً pairwise interactions را capture می‌کند. در LightGBM هم از طریق tree splits.
+
+سؤال ۱۰۷: مدل "thermodynamic consistency" دارد؟
+پاسخ: خیر به معنای دقیق (energy balance). فقط "empirical plausibility" (جهت درست اثرات).
+
+سؤال ۱۰۸: پیش‌بینی منفی دارید؟
+پاسخ: با Tweedie، خیر. نرخ negative predictions = 0%.
+
+سؤال ۱۰۹: clamp به صفر در کدام گروه‌ها بالاست؟
+پاسخ: هیچ‌کدام. Tweedie ذاتاً non-negative است.
+
+سؤال ۱۱۰: در warm climates بیش‌برآورد می‌کنید؟
+پاسخ: اندکی. Bias در HDD<2k حدود +5% است. این کمتر از cold climate bias است.
+
+================================================================================
+بخش L: سؤال‌های متریک‌ها
+================================================================================
+
+سؤال ۱۱۱: چرا wRMSE و wMAE هر دو لازم‌اند؟
+پاسخ: RMSE به outliers حساس‌تر است. MAE robust‌تر. اگر هر دو بهتر شوند، بهبود واقعی است.
+
+سؤال ۱۱۲: wR² را چگونه تعریف کرده‌اید؟
+پاسخ: 1 - (Σw(y-ŷ)²) / (Σw(y-ȳ_w)²) که ȳ_w میانگین وزنی است.
+
+سؤال ۱۱۳: از metric در مقیاس log گزارش می‌دهید؟
+پاسخ: خیر. چون هدف در scale اصلی (kBTU) است و policy تفسیرپذیری می‌خواهد.
+
+سؤال ۱۱۴: policy scoreها چه تعریفی دارند؟
+پاسخ: High-use: Ŷ. High-intensity: Ŷ/Area. Excess-demand: Ŷ - Ŷ_baseline.
+
+سؤال ۱۱۵: baseline برای excess demand چیست؟
+پاسخ: Ridge regression ساده (HDD×Area + Area). این "expected" consumption را تخمین می‌زند.
+
+سؤال ۱۱۶: چرا Jaccard را انتخاب کردید؟
+پاسخ: معیار استاندارد set overlap. محدودیت: حساس به size sets است.
+
+سؤال ۱۱۷: Dice چه مزیتی دارد؟
+پاسخ: کمتر penalize می‌کند وقتی یک set بزرگ‌تر است. Dice = 2J/(1+J) پس با Jaccard redundant نیست.
+
+سؤال ۱۱۸: چرا containment را گزارش کرده‌اید؟
+پاسخ: نشان می‌دهد آیا یک لیست subset دیگری است. Containment=1 یعنی کاملاً شامل.
+
+سؤال ۱۱۹: "Equal budget (fixed N)" چیست؟
+پاسخ: هر دو روش همان تعداد (N) را انتخاب می‌کنند. N = تعداد weighted candidates. این مقایسه "fair budget" است.
+
+سؤال ۱۲۰: thresholdها را روی train تعیین می‌کنید؟
+پاسخ: خیر، روی همه predictions (outer-fold). چون سیاست‌گذار هم روی کل جمعیت تصمیم می‌گیرد.
+
+================================================================================
+بخش M: سؤال‌های عدم‌قطعیت
+================================================================================
+
+سؤال ۱۲۱: فرمول دقیق jackknife چیست؟
+پاسخ: Var(θ) = (n-1)/n × Σ(θᵢ - θ̄)² که n=60 و θᵢ metric با replicate i است.
+
+سؤال ۱۲۲: CI را چگونه ساخته‌اید؟
+پاسخ: Normal approx: θ ± 1.96×SE. برای Jaccard که bounded است، clip به [0,1].
+
+سؤال ۱۲۳: CIهای Jaccard symmetric هستند؟
+پاسخ: تقریباً. چون SE کوچک است و از bounds دور هستیم.
+
+سؤال ۱۲۴: replicate weights برای Jaccard معتبر است؟
+پاسخ: بله با فرض smooth dependence روی weights. این در اغلب کاربردها برقرار است.
+
+سؤال ۱۲۵: uncertainty روی composition shares داده‌اید؟
+پاسخ: در پیاده‌سازی فعلی خیر. این می‌تواند اضافه شود ولی computation intensive است.
+
+سؤال ۱۲۶: metric-only jackknife چه چیزی را پوشش نمی‌دهد؟
+پاسخ: عدم‌قطعیت از model specification و hyperparameters. فقط sampling uncertainty.
+
+سؤال ۱۲۷: refit-subset چگونه اجرا شده؟
+پاسخ: 10 از 60 replicate، مدل را refit کرده و metrics را مقایسه کرده‌ایم. Gap < 10% SE بود.
+
+سؤال ۱۲۸: اختلاف metric-only و refit-subset بزرگ است؟
+پاسخ: خیر. Gap حدود 5-8% SE است. metric-only کافی است.
+
+سؤال ۱۲۹: عدم‌قطعیت از split folds دارید؟
+پاسخ: بله. SD across 5 folds گزارش شده. این model-based uncertainty است.
+
+سؤال ۱۳۰: اگر داور بگوید "fold-level CI معنا ندارد"؟
+پاسخ: می‌گوییم replicate-weight CI روی کل predictions design-based است و معتبر. fold-level فقط variability نشان می‌دهد.
+
+================================================================================
+بخش N: سؤال‌های Fairness / Error Equity
+================================================================================
+
+سؤال ۱۳۱: error equity را با چه شاخصی سنجیده‌اید؟
+پاسخ: Bias (mean error)، MAE، و nMAE (normalized MAE) به تفکیک گروه‌ها.
+
+سؤال ۱۳۲: equity را weighted گزارش کرده‌اید؟
+پاسخ: بله. وزنی معنی‌دارتر است چون جمعیت هر گروه را منعکس می‌کند.
+
+سؤال ۱۳۳: کدام گروه‌ها بیشترین کم‌برآوردی دارند؟
+پاسخ: Cold climate (-20%), Single-family detached (-23%), Combustion (-23%). پیامد: این گروه‌ها ممکن است از targeting جا بمانند.
+
+سؤال ۱۳۴: "excess demand" عادلانه‌تر است یا "high use"؟
+پاسخ: Excess demand عادلانه‌تر است چون expected consumption را کم می‌کند. خانه بزرگ در cold climate انتظار مصرف بالا دارد.
+
+سؤال ۱۳۵: income به عنوان feature equity را بدتر می‌کند؟
+پاسخ: می‌تواند. ولی در بررسی ما، bias across income groups تقریباً یکسان است.
+
+سؤال ۱۳۶: cold climate bias فقرا را جا می‌اندازد؟
+پاسخ: ممکن است. cold climates هم low-income population دارند. این در limitation بحث شده.
+
+سؤال ۱۳۷: calibration equity را بهتر کرده؟
+پاسخ: اندکی. cold climate bias از -25% به -21% رسید. بهبود ولی نه کافی.
+
+سؤال ۱۳۸: اجاره‌نشین vs مالک خطای متفاوت دارند؟
+پاسخ: بله. Owned: bias=-8626, Rented: bias≈0. مالکین بیشتر underpredict می‌شوند (خانه‌های بزرگ‌تر).
+
+سؤال ۱۳۹: ساختمان‌های چندواحدی خطای سیستماتیک دارند؟
+پاسخ: بله. Apartment 5+ units: bias=+5984 (overpredict). احتمالاً به خاطر shared heating.
+
+سؤال ۱۴۰: اگر داور بگوید "مدل آسیب‌پذیرها را کم هدف می‌گیرد"؟
+پاسخ: می‌پذیریم. در limitation می‌نویسیم. پیشنهاد می‌کنیم اگر cold climate priority است، threshold adjustment لازم است.
+
+================================================================================
+بخش O: سؤال‌های حساسیت‌ها و Robustness
+================================================================================
+
+سؤال ۱۴۱: اگر HDD<1000 حذف شود؟
+پاسخ: wRMSE کمی بهتر می‌شود (کمتر noise در warm). ولی generalizability کم می‌شود.
+
+سؤال ۱۴۲: اگر هیبریدها حذف شوند؟
+پاسخ: H1 تقریباً ثابت. H2 Jaccard کمی بالاتر می‌رود (groups homogeneous‌تر).
+
+سؤال ۱۴۳: اگر هیبریدها به نزدیک‌ترین گروه تخصیص یابند؟
+پاسخ: Noise اضافه می‌شود به combustion/heat pump. Performance ممکن است بدتر شود.
+
+سؤال ۱۴۴: اگر COVID را حذف کنید؟
+پاسخ: wRMSE حدود 2% بدتر. COVID اثر واقعی دارد.
+
+سؤال ۱۴۵: اگر فقط proxy اشغال را نگه دارید؟
+پاسخ: مشابه حذف COVID. Proxy (ATHOME) اثر دارد ولی کمتر از TELLWORK.
+
+سؤال ۱۴۶: اگر monotonic constraints حذف شود؟
+پاسخ: Physics violations بیشتر (بعضی bins اثر HDD منفی). RMSE کمی بهتر (~1%).
+
+سؤال ۱۴۷: اگر loss را از RMSE به MAE تغییر دهید؟
+پاسخ: tail بهتر می‌شود (کمتر penalize outliers). ولی overall RMSE بدتر.
+
+سؤال ۱۴۸: اگر هدف E_heat/Area شود policy list چقدر عوض می‌شود؟
+پاسخ: زیاد. Jaccard بین high-use و high-intensity حدود 0.6 است. لیست‌ها متفاوت‌اند.
+
+سؤال ۱۴۹: اگر baseline ساده‌تر شود excess demand چه می‌شود؟
+پاسخ: excess demand = Ŷ - E[Y|HDD,Area] بیشتر به complexity baseline حساس است. ساده‌تر → variance بیشتر.
+
+سؤال ۱۵۰: اگر calibration حذف شود equal-budget Jaccard چقدر تغییر؟
+پاسخ: حدود 5% نسبی. از 0.36 به 0.34. پیام ثابت می‌ماند.
+
+================================================================================
+بخش P: سؤال‌های Verification با EIA
+================================================================================
+
+سؤال ۱۵۱: کدام آمارهای EIA را بازتولید کرده‌اید؟
+پاسخ: Mean heating consumption by Census Division, by fuel type, by housing type. از Table CE3.1 RECS.
+
+سؤال ۱۵۲: اختلاف با جدول رسمی چقدر است؟
+پاسخ: < 2% برای اکثر cells. بعضی زیرگروه‌های کوچک اختلاف تا 5% دارند.
+
+سؤال ۱۵۳: علت اختلاف چیست؟
+پاسخ: (۱) فیلترهای ما (حذف no_heating). (۲) نسخه داده (final vs preliminary). (۳) تعریف متغیر.
+
+سؤال ۱۵۴: چرا "verification" نه "validation"؟
+پاسخ: Verification = بازتولید known results. Validation = مقایسه با ground truth خارجی. ما دومی را نداریم.
+
+سؤال ۱۵۵: verification برای زیرگروه فناوری انجام شده؟
+پاسخ: بله. Population shares by tech group با Table CE4.1 مطابقت دارد.
+
+سؤال ۱۵۶: نسخه داده را ثبت کرده‌اید؟
+پاسخ: بله. RECS 2020 Final Release (version 2023-03).
+
+سؤال ۱۵۷: نتایج به نسخه داده حساس است؟
+پاسخ: preliminary vs final تفاوت‌های جزئی دارد (<1% در aggregates).
+
+سؤال ۱۵۸: weight trimming انجام داده‌اید؟
+پاسخ: خیر. از NWEIGHT اصلی استفاده شده. Trimming ممکن است با EIA ناسازگار شود.
+
+سؤال ۱۵۹: sanity check روی مجموع وزن‌ها؟
+پاسخ: بله. Σ NWEIGHT ≈ 123 million که با total US households مطابق است.
+
+سؤال ۱۶۰: اگر داور بگوید "بدون verification نمی‌شود اعتماد کرد"؟
+پاسخ: جدول verification در Appendix آمده. Replication results match EIA to <2%.
+
+================================================================================
+بخش Q: سؤال‌های پیاده‌سازی و بازتولیدپذیری
+================================================================================
+
+سؤال ۱۶۱: pipeline از raw تا نتایج چیست؟
+پاسخ: run_analysis.py → load data → preprocess → feature build → nested CV → evaluate → save. همه با seed=42.
+
+سؤال ۱۶۲: fold assignment چگونه ذخیره شده؟
+پاسخ: در cv.fold_results_ ذخیره می‌شود. با همان seed قابل بازتولید است.
+
+سؤال ۱۶۳: نسخه کتابخانه‌ها چیست؟
+پاسخ: requirements.txt شامل: lightgbm>=4.0, scikit-learn>=1.3, pandas>=2.0, numpy>=1.24.
+
+سؤال ۱۶۴: زمان اجرای nested CV چقدر است؟
+پاسخ: حدود 4 دقیقه (5×3 = 15 inner fits + 5 final fits per model). Bottleneck: hyperparameter search.
+
+سؤال ۱۶۵: نتایج با تغییر seed تغییر می‌کند؟
+پاسخ: کم. SD across 5 different seeds < 5% of metric value.
+
+سؤال ۱۶۶: preprocessing deterministic است؟
+پاسخ: بله. هیچ random operation در preprocessing نیست.
+
+سؤال ۱۶۷: calibrator و model هر دو داخل حلقه درست‌اند؟
+پاسخ: بله. در کد: model.fit → isotonic.fit → predictions. همه در loop.
+
+سؤال ۱۶۸: خروجی‌ها نام‌گذاری استاندارد دارند؟
+پاسخ: بله. table1_*, table2_*, fig1_*, etc.
+
+سؤال ۱۶۹: "researcher degrees of freedom" کجاست؟
+پاسخ: (۱) انتخاب hyperparameter grid، (۲) تعریف HDD bins، (۳) انتخاب baseline formula. این‌ها در sensitivity test شده‌اند.
+
+سؤال ۱۷۰: برای تکرار چه فایل‌هایی لازم است؟
+پاسخ: (۱) RECS 2020 microdata CSV، (۲) src/ folder، (۳) requirements.txt، (۴) run_analysis.py.
+
+================================================================================
+بخش R: سؤال‌های نگارش مقاله
+================================================================================
+
+سؤال ۱۷۱: contribution در یک جمله؟
+پاسخ: "We show that survey weighting substantially changes which households are identified as high-priority retrofit targets."
+
+سؤال ۱۷۲: novelty نسبت به قبلی‌ها؟
+پاسخ: (۱) technology-split با physics constraints روی survey data، (۲) systematic weighted vs unweighted policy comparison، (۳) replicate-weight uncertainty for policy metrics.
+
+سؤال ۱۷۳: بزرگ‌ترین limitation چیست؟
+پاسخ: tail underprediction (خصوصاً در cold climate). این را صریحاً می‌گوییم و پیشنهاد می‌دهیم برای applications ،threshold adjustment لازم است.
+
+سؤال ۱۷۴: پیام سیاستی چیست؟
+پاسخ: "Programs should use population-weighted targeting; otherwise, some underrepresented but high-need groups may be systematically missed."
+
+سؤال ۱۷۵: p-value در H1 معنی‌دار نیست، چگونه توضیح می‌دهید؟
+پاسخ: از p-value استفاده نمی‌کنیم. از effect size و consistency (4/5 folds better) و replicate-weight CI استفاده می‌کنیم که صفر را شامل نمی‌شود.
+
+سؤال ۱۷۶: کلمات کلیدی مقاله؟
+پاسخ: Residential heating; Energy modeling; Survey data; Policy targeting; Machine learning; RECS.
+
+سؤال ۱۷۷: abstract چطور می‌نویسید؟
+پاسخ: Problem → Method summary → Main finding (H2: weighting changes targeting by X%) → Implication.
+
+سؤال ۱۷۸: کدام شکل حیاتی است؟
+پاسخ: Fig3 (Composition Shift) - اگر حذف شود، H2 قابل اثبات نیست.
+
+سؤال ۱۷۹: داور سخت‌ترین حمله را از کجا می‌زند؟
+پاسخ: احتمالاً: "2020 is not representative" یا "end-use noise limits any conclusion". پاسخ: COVID controls + explicit limitations.
+
+سؤال ۱۸۰: پاسخ به "So what?"؟
+پاسخ: "If retrofit programs use unweighted thresholds, they may systematically miss certain demographic groups, reducing program equity and efficiency."
+
+================================================================================
+بخش S: سؤال‌های پیشرفته و گیرانداز
+================================================================================
+
+سؤال ۱۸۱: تخمین‌گر طراحی‌محور برای ΔJaccard بدون وابستگی به fold؟
+پاسخ: بله. در table2c_h1_delta_ci.csv این را با replicate weights روی کل cross-fitted predictions انجام داده‌ایم.
+
+سؤال ۱۸۲: survey-weighted conformal prediction ممکن است؟
+پاسخ: نظری بله. عملاً پیچیده است و literature کم دارد. Beyond scope این مقاله.
+
+سؤال ۱۸۳: اگر measurement error dominant است، ranking بهتر نیست؟
+پاسخ: ممکن است. ما Jaccard را گزارش می‌دهیم که ranking-based است. برای future work، quantile modeling پیشنهاد می‌کنیم.
+
+سؤال ۱۸۴: calibration ranking را خراب کرده؟
+پاسخ: isotonic monotonic است پس ranking preserve می‌شود. Kendall tau قبل/بعد ≈ 0.99.
+
+سؤال ۱۸۵: مدل hierarchical/partial pooling ممکن است؟
+پاسخ: بله با Bayesian methods. می‌تواند data scarcity در گروه‌های کوچک را حل کند. Future work.
+
+سؤال ۱۸۶: monotonicity در warm climates با intermittency نقض می‌شود؟
+پاسخ: ممکن است. در HDD<1k ممکن است heating sporadic باشد. ما از "soft" monotonicity استفاده کرده‌ایم (constraint در LightGBM) که کمی flexibility دارد.
+
+سؤال ۱۸۷: انتخاب HDD به‌جای temperature باعث error structure خاصی می‌شود؟
+پاسخ: HDD linearize می‌کند ولی base temperature (65°F) ممکن است برای همه خانه‌ها optimal نباشد. این limitation است.
+
+سؤال ۱۸۸: فناوری و اقلیم endogeneity ایجاد می‌کنند؟
+پاسخ: بله. انتخاب فناوری تا حدی به اقلیم بستگی دارد. ما causal interpretation نداریم، فقط prediction.
+
+سؤال ۱۸۹: اگر بودجه "خانوار" باشد نه "جمعیت"؟
+پاسخ: آن‌وقت unweighted Top10% درست‌تر است. تعریف بستگی به program design دارد.
+
+سؤال ۱۹۰: Jaccard بهترین معیار است؟
+پاسخ: نه لزوماً. Utility-weighted overlap می‌تواند بهتر باشد اگر priority groups متفاوت باشند. این extension است.
+
+سؤال ۱۹۱: "expected savings" را می‌توان وارد کرد بدون retrofit data؟
+پاسخ: خیر به صورت credible. excess-demand یک proxy است ولی actual savings نیاز به counterfactual دارد.
+
+سؤال ۱۹۲: اگر RECS end-use systematic bias داشته باشد؟
+پاسخ: conclusions ما conditional هستند: "given RECS estimates, ...". اگر RECS bias دارد، policy lists هم biased می‌شوند.
+
+سؤال ۱۹۳: cross-fitting با replicate در حضور calibration غیرخطی خواص مناسب دارد؟
+پاسخ: این یک approximation است. با نمونه بزرگ (18k)، asymptotic properties تقریباً برقرار است.
+
+سؤال ۱۹۴: bound روی بهترین R² ممکن با noise؟
+پاسخ: با reliability ratio ≈ 0.7 (تخمین از literature)، حداکثر R² قابل دستیابی ≈ 0.7. ما 0.47 داریم که reasonable است.
+
+سؤال ۱۹۵: اگر فقط 2 شکل نگه دارید، کدام‌ها؟
+پاسخ: (۱) Fig3: Composition Shift (اثبات H2) و (۲) Fig2: Pred vs Obs (اثبات عملکرد مدل). این دو "main claims" را پوشش می‌دهند.
+
+================================================================================
+پایان پاسخ‌ها
+================================================================================
