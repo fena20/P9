@@ -265,7 +265,13 @@ class HeatingDemandVisualizer:
             nrmse = rmse / mean_obs * 100  # Normalized RMSE as %
             
             # Show both R² and correlation (r) for transparency
-            ax.annotate(f'wR² = {r2:.3f} (r = {corr:.3f})\n'
+            # Note: Low wR² can occur when subgroup variance < residual variance
+            # but correlation (r) still indicates predictive relationship
+            r2_note = ""
+            if r2 < 0.1:
+                r2_note = "*"  # Flag low R² for documentation
+            
+            ax.annotate(f'wR² = {r2:.3f}{r2_note} (r = {corr:.3f})\n'
                        f'wRMSE = {rmse:,.0f} ({nrmse:.1f}%)\n'
                        f'wBias = {bias:,.0f}\n'
                        f'slope = {calib_b:.3f}', 
@@ -771,6 +777,93 @@ class HeatingDemandVisualizer:
         fig.suptitle(f'{title} ({model_name})\n'
                     f'(Weighted metrics on outer-fold test sets)', 
                     fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        return fig
+    
+    def plot_ebm_shape_functions(self,
+                                  ebm_model,
+                                  features_to_plot: List[str] = None,
+                                  title: str = "EBM Shape Functions") -> plt.Figure:
+        """
+        Plot EBM shape functions for key features.
+        
+        Shows partial dependence / shape functions for interpretability.
+        
+        Parameters
+        ----------
+        ebm_model : EBMHeatingModel
+            Fitted EBM model
+        features_to_plot : list, optional
+            Features to visualize (defaults to HDD, area, vintage)
+        title : str
+            Plot title
+            
+        Returns
+        -------
+        Figure
+        """
+        if features_to_plot is None:
+            features_to_plot = ['HDD65', 'TOTSQFT_EN', 'YEARMADERANGE', 'ADQINSUL']
+        
+        # Get shape functions
+        try:
+            shapes = ebm_model.get_shape_functions()
+        except Exception as e:
+            logger.warning(f"Could not extract EBM shapes: {e}")
+            return None
+        
+        # Filter to requested features
+        available = [f for f in features_to_plot if f in shapes]
+        
+        if not available:
+            logger.warning("No requested features found in EBM shapes")
+            return None
+        
+        n_features = len(available)
+        n_cols = min(2, n_features)
+        n_rows = (n_features + 1) // 2
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 4*n_rows))
+        if n_features == 1:
+            axes = np.array([axes])
+        axes = axes.flatten()
+        
+        for i, feat in enumerate(available):
+            ax = axes[i]
+            shape_data = shapes[feat]
+            
+            bins = shape_data.get('bins')
+            scores = shape_data.get('scores')
+            
+            if bins is None or scores is None:
+                ax.text(0.5, 0.5, f'{feat}\n(no shape data)', 
+                       ha='center', va='center', transform=ax.transAxes)
+                continue
+            
+            # Handle different bin types
+            if isinstance(bins[0], (list, tuple, np.ndarray)):
+                # Categorical or complex bins
+                x_vals = np.arange(len(scores))
+                ax.bar(x_vals, scores, color='steelblue', alpha=0.7)
+            else:
+                # Numeric bins
+                x_vals = bins[:len(scores)]
+                ax.plot(x_vals, scores, 'b-', lw=2)
+                ax.fill_between(x_vals, 0, scores, alpha=0.3)
+            
+            ax.axhline(y=0, color='red', linestyle='--', lw=1)
+            ax.set_xlabel(feat.replace('_', ' ').title())
+            ax.set_ylabel('Contribution to E_heat (kBTU)')
+            ax.set_title(feat)
+            ax.grid(alpha=0.3)
+        
+        # Hide unused axes
+        for j in range(len(available), len(axes)):
+            axes[j].set_visible(False)
+        
+        fig.suptitle(f'{title}\n'
+                    f'(Positive = increases prediction, Negative = decreases)',
+                    fontsize=12, fontweight='bold')
         plt.tight_layout()
         return fig
     

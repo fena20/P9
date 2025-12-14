@@ -92,6 +92,7 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
         self.clip_rate_ = 0.0
         self.bias_correction_ = 0.0  # Additive correction
         self.scale_correction_ = 1.0  # Multiplicative correction
+        self.isotonic_calibrator_ = None  # For tail calibration
         
     def _get_params(self) -> Dict:
         """Get merged parameters."""
@@ -176,7 +177,7 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
             self.model_.feature_importances_
         ))
         
-        # Compute bias correction on training data
+        # Compute calibration on training data
         if self.apply_bias_correction:
             y_pred_train = self.model_.predict(X_array)
             residuals = y - y_pred_train
@@ -197,6 +198,26 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
                     self.scale_correction_ = scale_num / scale_den
                     # Clamp scale correction to reasonable range
                     self.scale_correction_ = np.clip(self.scale_correction_, 0.8, 1.25)
+                
+                # Isotonic regression for non-linear tail calibration
+                # Particularly helps with tail underprediction
+                try:
+                    from sklearn.isotonic import IsotonicRegression
+                    
+                    # Apply linear correction first
+                    y_pred_linear = y_pred_train * self.scale_correction_ + self.bias_correction_
+                    
+                    # Fit isotonic regression: maps predictions to observed
+                    self.isotonic_calibrator_ = IsotonicRegression(
+                        y_min=0, y_max=None, out_of_bounds='clip'
+                    )
+                    # Use sample weights for fitting
+                    self.isotonic_calibrator_.fit(y_pred_linear, y, sample_weight=sample_weight)
+                    
+                    logger.debug("Fitted isotonic calibrator for tail correction")
+                except Exception as e:
+                    logger.warning(f"Isotonic calibration failed: {e}")
+                    self.isotonic_calibrator_ = None
             else:
                 self.bias_correction_ = np.mean(residuals)
                 self.scale_correction_ = 1.0
@@ -230,10 +251,14 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
         
         predictions = self.model_.predict(X)
         
-        # Apply bias and scale correction
+        # Apply calibration
         if apply_correction and self.apply_bias_correction:
-            # Apply scale correction first, then bias
+            # Apply linear correction first
             predictions = predictions * self.scale_correction_ + self.bias_correction_
+            
+            # Apply isotonic calibration for tail improvement
+            if self.isotonic_calibrator_ is not None:
+                predictions = self.isotonic_calibrator_.predict(predictions)
         
         # Clip negative predictions (shouldn't happen with gamma but safety check)
         predictions, self.clip_rate_ = clip_predictions(predictions, min_val=0)

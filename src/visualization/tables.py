@@ -385,6 +385,25 @@ def create_policy_targeting_table(targeting_results: Dict,
         },
     ])
     
+    # Add equal-budget comparison (fixed N candidates)
+    if 'overlap_equal_budget' in score_results:
+        eb = score_results['overlap_equal_budget']
+        rows.append({
+            'Metric': '--- Equal Budget (N fixed) ---',
+            'Value': '',
+            'Description': f"Both methods select top {score_results.get('n_budget', 'N')} candidates"
+        })
+        rows.append({
+            'Metric': 'Jaccard (Equal Budget)',
+            'Value': f"{eb['jaccard_index']:.3f}",
+            'Description': 'Jaccard when both select same N candidates'
+        })
+        rows.append({
+            'Metric': 'Dice (Equal Budget)',
+            'Value': f"{eb['overlap_rate']:.3f}",
+            'Description': 'Dice coefficient for equal-budget lists'
+        })
+    
     result_df = pd.DataFrame(rows)
     result_df.attrs['note'] = (
         f"Policy score: {score_name}. Top 10% candidates defined using weighted/unweighted "
@@ -800,7 +819,104 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
         "Cold Bias = weighted mean residual for HDD ≥ 6000 (as % of mean observed). "
         "Tail Bias = weighted mean residual for top 10% of observed energy (as % of mean). "
         "Negative bias = systematic underprediction. "
-        "All metrics weighted by NWEIGHT, outer-fold predictions."
+        "All metrics weighted by NWEIGHT, outer-fold predictions. "
+        "NOTE: Low/negative wR² for electric groups reflects high noise in RECS end-use estimates "
+        "and low within-group variance; correlation (r) may still indicate predictive signal."
+    )
+    
+    return df
+
+
+def create_baseline_comparison_table(baseline_results: pd.DataFrame,
+                                      ml_metrics: Dict[str, float],
+                                      ml_name: str = "LightGBM") -> pd.DataFrame:
+    """
+    Create baseline vs ML comparison table.
+    
+    Shows physics baselines vs ML model performance.
+    
+    Parameters
+    ----------
+    baseline_results : DataFrame
+        Baseline evaluation results by technology
+    ml_metrics : dict
+        ML model metrics (overall)
+    ml_name : str
+        ML model name
+        
+    Returns
+    -------
+    DataFrame
+        Comparison table
+    """
+    results = []
+    
+    # Add baseline results
+    for _, row in baseline_results.iterrows():
+        results.append({
+            'Model': f"Baseline ({row.get('tech_group', 'All')})",
+            'wRMSE (kBTU)': row.get('weighted_rmse', np.nan),
+            'wMAE (kBTU)': row.get('weighted_mae', np.nan),
+            'wR²': row.get('weighted_r2', np.nan),
+            'Type': 'Physics Baseline'
+        })
+    
+    # Add ML model results
+    results.append({
+        'Model': ml_name,
+        'wRMSE (kBTU)': ml_metrics.get('weighted_rmse', np.nan),
+        'wMAE (kBTU)': ml_metrics.get('weighted_mae', np.nan),
+        'wR²': ml_metrics.get('weighted_r2', np.nan),
+        'Type': 'ML Model'
+    })
+    
+    df = pd.DataFrame(results)
+    
+    # Compute improvement
+    if len(baseline_results) > 0:
+        baseline_rmse = baseline_results['weighted_rmse'].mean()
+        ml_rmse = ml_metrics.get('weighted_rmse', np.nan)
+        improvement = (baseline_rmse - ml_rmse) / baseline_rmse * 100 if baseline_rmse > 0 else np.nan
+        
+        df.attrs['note'] = (
+            f"Comparison of physics baselines vs {ml_name}. "
+            f"RMSE improvement: {improvement:.1f}% over mean baseline. "
+            f"All metrics weighted by NWEIGHT, outer-fold predictions."
+        )
+    
+    return df
+
+
+def create_ablation_table(ablation_results: Dict[str, Dict]) -> pd.DataFrame:
+    """
+    Create ablation study table.
+    
+    Parameters
+    ----------
+    ablation_results : dict
+        Results from ablation experiments
+        
+    Returns
+    -------
+    DataFrame
+        Ablation comparison table
+    """
+    results = []
+    
+    for config_name, metrics in ablation_results.items():
+        results.append({
+            'Configuration': config_name,
+            'wRMSE': metrics.get('weighted_rmse', np.nan),
+            'wMAE': metrics.get('weighted_mae', np.nan),
+            'wR²': metrics.get('weighted_r2', np.nan),
+            'wBias': metrics.get('weighted_bias', np.nan),
+        })
+    
+    df = pd.DataFrame(results)
+    
+    df.attrs['note'] = (
+        "Ablation study comparing model configurations. "
+        "All metrics on outer-fold test predictions, weighted by NWEIGHT."
     )
     
     return df

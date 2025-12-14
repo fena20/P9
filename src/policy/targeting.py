@@ -137,13 +137,35 @@ class PolicyTargeting:
                 weights, metadata
             )
             
+            # Equal-budget comparison (fixed number of candidates)
+            # This is the "fair" policy comparison
+            n_budget = candidates_weighted.sum()  # Use weighted count as budget
+            
+            # Select top-N by weighted ranking
+            weighted_ranks = np.argsort(-score_values * weights / weights.sum())
+            candidates_weighted_topN = np.zeros(len(score_values), dtype=bool)
+            candidates_weighted_topN[weighted_ranks[:n_budget]] = True
+            
+            # Select top-N by unweighted ranking  
+            unweighted_ranks = np.argsort(-score_values)
+            candidates_unweighted_topN = np.zeros(len(score_values), dtype=bool)
+            candidates_unweighted_topN[unweighted_ranks[:n_budget]] = True
+            
+            # Overlap for equal-budget comparison
+            overlap_equal_budget = self._compute_overlap_metrics(
+                candidates_weighted_topN, candidates_unweighted_topN
+            )
+            
             results[score_name] = {
                 'overlap': overlap_metrics,
+                'overlap_equal_budget': overlap_equal_budget,  # NEW: equal-budget comparison
                 'composition': composition,
                 'n_weighted_candidates': candidates_weighted.sum(),
                 'n_unweighted_candidates': candidates_unweighted.sum(),
+                'n_budget': n_budget,
                 'weighted_threshold': compute_weighted_quantile(score_values, weights, self.quantile),
-                'unweighted_threshold': np.quantile(score_values[~np.isnan(score_values)], self.quantile)
+                'unweighted_threshold': np.quantile(score_values[~np.isnan(score_values)], self.quantile),
+                'target_pct': 100 - self.target_percentile  # 10% for top 10%
             }
         
         return results
