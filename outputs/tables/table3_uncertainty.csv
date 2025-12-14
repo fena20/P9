@@ -1,6 +1,6 @@
 # All metrics computed on outer-fold test predictions with NWEIGHT. SE and 95% CI from RECS replicate-weight jackknife (n=60). MAPE excluded (unstable for small denominators).
 Metric,Estimate,SE,95% CI,Unit
-wRMSE,"25,266",312,"[24,655, 25,878]",kBTU
-wMAE,"15,822",133,"[15,561, 16,083]",kBTU
-wR²,0.467,0.007,"[0.452, 0.481]",—
-wBias,"-7,101",169,"[-7,431, -6,770]",kBTU
+wRMSE,"24,650",301,"[24,060, 25,240]",kBTU
+wMAE,"15,759",134,"[15,497, 16,022]",kBTU
+wR²,0.492,0.009,"[0.475, 0.510]",—
+wBias,"-3,728",179,"[-4,079, -3,378]",kBTU

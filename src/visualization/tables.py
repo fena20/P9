@@ -333,10 +333,27 @@ def create_policy_targeting_table(targeting_results: Dict,
             'Description': 'Intersection / Union of candidate sets'
         },
         {
-            'Metric': 'Overlap Rate',
+            'Metric': 'Dice Overlap',
             'Value': f"{overlap['overlap_rate']:.3f}",
             'Description': 'Dice coefficient: 2×|A∩B| / (|A|+|B|)'
         },
+    ]
+    
+    # Add Recall and Containment if available
+    if 'recall_weighted' in overlap:
+        rows.append({
+            'Metric': 'Recall (Weighted→Unweighted)',
+            'Value': f"{overlap['recall_weighted']:.3f}",
+            'Description': 'Fraction of weighted candidates also in unweighted'
+        })
+    if 'containment' in overlap:
+        rows.append({
+            'Metric': 'Containment',
+            'Value': f"{overlap['containment']:.3f}",
+            'Description': 'Intersection / min(|A|, |B|)'
+        })
+    
+    rows.extend([
         {
             'Metric': 'Only in Weighted',
             'Value': f"{overlap['only_weighted']} ({overlap['pct_only_weighted']:.1f}%)",
@@ -347,17 +364,26 @@ def create_policy_targeting_table(targeting_results: Dict,
             'Value': f"{overlap['only_unweighted']} ({overlap['pct_only_unweighted']:.1f}%)",
             'Description': 'Candidates selected only without weights'
         },
+    ])
+    
+    # Correct units based on score type
+    if 'intensity' in score_name.lower():
+        threshold_unit = 'kBTU/ft²'
+    else:
+        threshold_unit = 'kBTU'
+    
+    rows.extend([
         {
             'Metric': 'Weighted Threshold',
-            'Value': f"{score_results['weighted_threshold']:,.0f} kBTU",
+            'Value': f"{score_results['weighted_threshold']:,.0f} {threshold_unit}",
             'Description': 'Weighted 90th percentile cutoff'
         },
         {
             'Metric': 'Unweighted Threshold',
-            'Value': f"{score_results['unweighted_threshold']:,.0f} kBTU",
+            'Value': f"{score_results['unweighted_threshold']:,.0f} {threshold_unit}",
             'Description': 'Unweighted 90th percentile cutoff'
         },
-    ]
+    ])
     
     result_df = pd.DataFrame(rows)
     result_df.attrs['note'] = (
@@ -717,22 +743,30 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
         
         # Cold-climate bias (HDD >= 6000)
         cold_mask = mask & (hdd >= 6000)
-        if cold_mask.sum() > 0:
-            cold_bias = np.sum(weights[cold_mask] * residuals[cold_mask]) / np.sum(weights[cold_mask])
-            cold_bias_pct = cold_bias / np.sum(weights[cold_mask] * y_true[cold_mask]) * np.sum(weights[cold_mask]) * 100
+        n_cold = cold_mask.sum()
+        if n_cold > 0:
+            w_cold = weights[cold_mask]
+            cold_bias = np.sum(w_cold * residuals[cold_mask]) / np.sum(w_cold)
+            cold_mean_true = np.sum(w_cold * y_true[cold_mask]) / np.sum(w_cold)
+            cold_bias_pct = cold_bias / cold_mean_true * 100 if cold_mean_true != 0 else np.nan
         else:
             cold_bias = np.nan
             cold_bias_pct = np.nan
+            n_cold = 0
         
-        # Tail underprediction (top 20% of observed)
-        p80 = np.percentile(y_true[mask], 80)
-        tail_mask = mask & (y_true >= p80)
-        if tail_mask.sum() > 0:
-            tail_residual = np.sum(weights[tail_mask] * residuals[tail_mask]) / np.sum(weights[tail_mask])
-            tail_residual_pct = tail_residual / np.sum(weights[tail_mask] * y_true[tail_mask]) * np.sum(weights[tail_mask]) * 100
+        # Tail underprediction (top decile = top 10% of observed for this tech)
+        p90 = np.percentile(y_true[mask], 90)
+        tail_mask = mask & (y_true >= p90)
+        n_tail = tail_mask.sum()
+        if n_tail > 0:
+            w_tail = weights[tail_mask]
+            tail_residual = np.sum(w_tail * residuals[tail_mask]) / np.sum(w_tail)
+            tail_mean_true = np.sum(w_tail * y_true[tail_mask]) / np.sum(w_tail)
+            tail_residual_pct = tail_residual / tail_mean_true * 100 if tail_mean_true != 0 else np.nan
         else:
             tail_residual = np.nan
             tail_residual_pct = np.nan
+            n_tail = 0
         
         # Overall bias
         overall_bias = np.sum(w * residuals[mask]) / total_w if total_w > 0 else 0
@@ -747,7 +781,9 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
             'Pop Share (%)': total_w / weights.sum() * 100,
             'Mean HDD': mean_hdd,
             'Overall Bias (%)': overall_bias_pct,
-            'Cold-Climate Bias (%)': cold_bias_pct if not np.isnan(cold_bias_pct) else 'N/A',
+            'n_cold (HDD≥6k)': n_cold,
+            'Cold Bias (%)': cold_bias_pct if not np.isnan(cold_bias_pct) else 'N/A',
+            'n_tail (top 10%)': n_tail,
             'Tail Bias (%)': tail_residual_pct if not np.isnan(tail_residual_pct) else 'N/A',
             'Non-Physical (%)': neg_rate
         })
@@ -761,8 +797,8 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
     
     df.attrs['note'] = (
         "Physics-consistency diagnostics by technology. "
-        "Cold-Climate Bias = mean residual for HDD ≥ 6000. "
-        "Tail Bias = mean residual for top 20% of observed energy. "
+        "Cold Bias = weighted mean residual for HDD ≥ 6000 (as % of mean observed). "
+        "Tail Bias = weighted mean residual for top 10% of observed energy (as % of mean). "
         "Negative bias = systematic underprediction. "
         "All metrics weighted by NWEIGHT, outer-fold predictions."
     )

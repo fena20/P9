@@ -1,12 +1,12 @@
 # Composition shift for high_intensity targeting by division. Representation Ratio = Share among candidates / Population share.
 Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
-East North Central,1992,15.7,32.2,18.5,13.6,20.6,2.05
-East South Central,1324,6.2,1.8,2.2,-0.3,2.9,0.29
-Middle Atlantic,1957,13.5,21.8,14.3,7.4,16.1,1.61
-Mountain North,1170,3.9,7.7,12.5,-4.8,19.7,1.97
-Mountain South,852,3.7,1.1,1.5,-0.4,3.0,0.3
-New England,1656,5.0,9.9,13.8,-3.9,20.0,2.0
-Pacific,2076,13.9,3.9,11.5,-7.6,2.8,0.28
-South Atlantic,3041,19.0,4.9,5.3,-0.4,2.6,0.26
-West North Central,1804,7.2,14.7,18.9,-4.2,20.4,2.04
-West South Central,1759,11.9,2.0,1.5,0.6,1.7,0.17
+East North Central,1992,15.7,32.9,19.1,13.8,21.0,2.1
+East South Central,1324,6.2,2.0,2.0,0.0,3.2,0.32
+Middle Atlantic,1957,13.5,21.3,14.1,7.2,15.8,1.58
+Mountain North,1170,3.9,8.4,12.9,-4.5,21.6,2.15
+Mountain South,852,3.7,1.3,1.7,-0.4,3.7,0.36
+New England,1656,5.0,9.8,13.8,-3.9,19.8,1.98
+Pacific,2076,13.9,4.2,12.5,-8.3,3.0,0.3
+South Atlantic,3041,19.0,3.7,4.4,-0.7,2.0,0.2
+West North Central,1804,7.2,14.4,18.0,-3.6,20.0,2.0
+West South Central,1759,11.9,1.9,1.6,0.3,1.6,0.16

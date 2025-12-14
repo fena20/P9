@@ -258,12 +258,19 @@ class HeatingDemandVisualizer:
             ax.plot(x_line, calib_a + calib_b * x_line, 'g-', lw=2, alpha=0.8)
             
             r2 = metrics.weighted_r2(yt, yp, wt)
+            corr = metrics.weighted_correlation(yt, yp, wt)
             rmse = metrics.weighted_rmse(yt, yp, wt)
             bias = metrics.weighted_bias(yt, yp, wt)
+            mean_obs = np.average(yt, weights=wt)
+            nrmse = rmse / mean_obs * 100  # Normalized RMSE as %
             
-            ax.annotate(f'wR² = {r2:.3f}\nwRMSE = {rmse:,.0f}\nwBias = {bias:,.0f}\nslope = {calib_b:.3f}', 
+            # Show both R² and correlation (r) for transparency
+            ax.annotate(f'wR² = {r2:.3f} (r = {corr:.3f})\n'
+                       f'wRMSE = {rmse:,.0f} ({nrmse:.1f}%)\n'
+                       f'wBias = {bias:,.0f}\n'
+                       f'slope = {calib_b:.3f}', 
                        xy=(0.05, 0.95), xycoords='axes fraction',
-                       fontsize=9, verticalalignment='top',
+                       fontsize=8, verticalalignment='top',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
             
             ax.set_xlabel('Observed (kBTU)')
@@ -355,18 +362,22 @@ class HeatingDemandVisualizer:
                                fmt='ko-', lw=2, ms=8, capsize=4,
                                label='Weighted Mean ± 95% CI')
                     
-                    # Annotate bin support
+                    # Annotate bin support - IMPROVED VISIBILITY
+                    # Place annotations just above zero line or at fixed position
+                    y_annot = -global_residual_lim * 0.85  # Near bottom of plot
                     for _, row in bin_df.iterrows():
-                        ax.annotate(f'n={row["n"]}', 
-                                   (row['center'], row['mean']),
-                                   textcoords='offset points',
-                                   xytext=(0, 10), fontsize=7, ha='center')
+                        ax.annotate(f'n={row["n"]:,}', 
+                                   (row['center'], y_annot),
+                                   fontsize=8, ha='center', fontweight='bold',
+                                   bbox=dict(boxstyle='round,pad=0.2', 
+                                           facecolor='lightyellow', 
+                                           edgecolor='gray', alpha=0.8))
                 
-                ax.set_xlabel('HDD')
-                ax.set_ylabel('Residual (Pred - Obs, kBTU)')
-                ax.set_title(f'{group.replace("_", " ").title()}')
+                ax.set_xlabel('HDD', fontsize=10)
+                ax.set_ylabel('Residual (Ŷ - Y, kBTU)', fontsize=10)
+                ax.set_title(f'{group.replace("_", " ").title()}', fontsize=11, fontweight='bold')
                 ax.set_ylim(-global_residual_lim, global_residual_lim)
-                ax.legend(fontsize=8)
+                ax.legend(fontsize=8, loc='upper right')
             
             fig.suptitle(f'{title}\n'
                         f'(Common y-axis scale for comparability; Bias = Ŷ - Y)',
@@ -638,16 +649,19 @@ class HeatingDemandVisualizer:
             ax_bias.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
             ax_bias.grid(axis='y', alpha=0.3)
             
-            # Annotate with n and weighted share
+            # Annotate with n and weighted share - IMPROVED VISIBILITY
             if 'n_samples' in df.columns and 'total_weight' in df.columns:
                 total_w = df['total_weight'].sum()
+                # Create annotation strip at top of panel
                 for i, (_, row) in enumerate(df.iterrows()):
                     pct = row['total_weight'] / total_w * 100
-                    ax_bias.annotate(f'n={row["n_samples"]}\n({pct:.1f}%)', 
-                                    (i, bias_vals[i]),
-                                    textcoords='offset points',
-                                    xytext=(0, 5 if bias_vals[i] >= 0 else -15),
-                                    fontsize=7, ha='center')
+                    # Position at top of axes for consistent visibility
+                    ax_bias.annotate(f'n={row["n_samples"]:,}\n({pct:.0f}%)', 
+                                    xy=(i, 0.98), xycoords=('data', 'axes fraction'),
+                                    fontsize=7, ha='center', va='top',
+                                    fontweight='bold',
+                                    bbox=dict(boxstyle='round,pad=0.15',
+                                            facecolor='white', edgecolor='gray', alpha=0.8))
             
             # BOTTOM ROW: Normalized MAE panel
             ax_nmae = axes[1, col_idx] if n_groups > 1 else axes[1, 0]

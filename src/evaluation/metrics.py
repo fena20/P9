@@ -77,9 +77,16 @@ class WeightedMetrics:
     def weighted_r2(y_true: np.ndarray, y_pred: np.ndarray,
                     weights: np.ndarray) -> float:
         """
-        Compute weighted R-squared.
+        Compute weighted R-squared using SUBGROUP mean.
         
         R²_w = 1 - sum(w_i * (y_i - y_hat_i)^2) / sum(w_i * (y_i - y_bar_w)^2)
+        
+        Note: For subgroup analysis, SS_tot uses the subgroup's weighted mean,
+        not the global mean. This can result in lower R² for subgroups with
+        lower variance than the full population.
+        
+        For within-subgroup performance, consider using weighted correlation (r)
+        or normalized RMSE (NRMSE = RMSE/mean) as complementary metrics.
         """
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
@@ -93,6 +100,7 @@ class WeightedMetrics:
         if len(y_true) == 0:
             return np.nan
         
+        # Use SUBGROUP weighted mean for SS_tot
         weighted_mean = np.sum(weights * y_true) / np.sum(weights)
         
         ss_res = np.sum(weights * (y_true - y_pred) ** 2)
@@ -102,6 +110,42 @@ class WeightedMetrics:
             return 0.0
         
         return 1 - (ss_res / ss_tot)
+    
+    @staticmethod
+    def weighted_correlation(y_true: np.ndarray, y_pred: np.ndarray,
+                             weights: np.ndarray) -> float:
+        """
+        Compute weighted Pearson correlation coefficient.
+        
+        More robust than R² for subgroup analysis as it measures
+        the strength of linear relationship, not predictive variance explained.
+        
+        Returns r (not r²) - square it for explained correlation.
+        """
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+        weights = np.asarray(weights)
+        
+        valid = ~(np.isnan(y_true) | np.isnan(y_pred) | np.isnan(weights))
+        y_true = y_true[valid]
+        y_pred = y_pred[valid]
+        weights = weights[valid]
+        
+        if len(y_true) < 2:
+            return np.nan
+        
+        w_sum = np.sum(weights)
+        mean_true = np.sum(weights * y_true) / w_sum
+        mean_pred = np.sum(weights * y_pred) / w_sum
+        
+        cov = np.sum(weights * (y_true - mean_true) * (y_pred - mean_pred)) / w_sum
+        std_true = np.sqrt(np.sum(weights * (y_true - mean_true)**2) / w_sum)
+        std_pred = np.sqrt(np.sum(weights * (y_pred - mean_pred)**2) / w_sum)
+        
+        if std_true * std_pred == 0:
+            return 0.0
+        
+        return cov / (std_true * std_pred)
     
     @staticmethod
     def weighted_mape(y_true: np.ndarray, y_pred: np.ndarray,

@@ -1,8 +1,10 @@
 # Policy score: high_use. Top 10% candidates defined using weighted/unweighted 90th percentile threshold on outer-fold predictions.
 Metric,Value,Description
-Jaccard Index,0.763,Intersection / Union of candidate sets
-Overlap Rate,0.865,Dice coefficient: 2×|A∩B| / (|A|+|B|)
-Only in Weighted,549 (23.7%),Candidates selected only with weights
+Jaccard Index,0.760,Intersection / Union of candidate sets
+Dice Overlap,0.863,Dice coefficient: 2×|A∩B| / (|A|+|B|)
+Recall (Weighted→Unweighted),0.760,Fraction of weighted candidates also in unweighted
+Containment,1.000,"Intersection / min(|A|, |B|)"
+Only in Weighted,558 (24.0%),Candidates selected only with weights
 Only in Unweighted,0 (0.0%),Candidates selected only without weights
-Weighted Threshold,"57,705 kBTU",Weighted 90th percentile cutoff
-Unweighted Threshold,"62,563 kBTU",Unweighted 90th percentile cutoff
+Weighted Threshold,"63,829 kBTU",Weighted 90th percentile cutoff
+Unweighted Threshold,"69,652 kBTU",Unweighted 90th percentile cutoff

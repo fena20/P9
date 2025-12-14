@@ -31,8 +31,11 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
     """
     
     # Default hyperparameters
+    # Using Tweedie with power=1.5 (between Poisson=1 and Gamma=2)
+    # Better for right-skewed data with many moderate values
     DEFAULT_PARAMS = {
-        'objective': 'gamma',  # Ensures non-negative predictions
+        'objective': 'tweedie',  # Tweedie: handles zero-inflated + heavy tails
+        'tweedie_variance_power': 1.5,  # 1=Poisson, 2=Gamma, 1.5=compound
         'metric': 'rmse',
         'boosting_type': 'gbdt',
         'n_estimators': 300,
@@ -62,7 +65,8 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
     def __init__(self, 
                  params: Optional[Dict] = None,
                  use_monotonic_constraints: bool = False,
-                 feature_names: Optional[List[str]] = None):
+                 feature_names: Optional[List[str]] = None,
+                 apply_bias_correction: bool = True):
         """
         Initialize LightGBM heating model.
         
@@ -74,15 +78,20 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
             Whether to apply monotonic constraints
         feature_names : list, optional
             Feature names for constraint mapping
+        apply_bias_correction : bool
+            Whether to apply post-hoc bias correction (reduces systematic under/over-prediction)
         """
         self.params = params or {}
         self.use_monotonic_constraints = use_monotonic_constraints
         self.feature_names = feature_names
+        self.apply_bias_correction = apply_bias_correction
         
         self.model_ = None
         self.feature_importances_ = None
         self.n_clipped_ = 0
         self.clip_rate_ = 0.0
+        self.bias_correction_ = 0.0  # Additive correction
+        self.scale_correction_ = 1.0  # Multiplicative correction
         
     def _get_params(self) -> Dict:
         """Get merged parameters."""
@@ -167,9 +176,37 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
             self.model_.feature_importances_
         ))
         
+        # Compute bias correction on training data
+        if self.apply_bias_correction:
+            y_pred_train = self.model_.predict(X_array)
+            residuals = y - y_pred_train
+            
+            if sample_weight is not None:
+                # Weighted bias
+                self.bias_correction_ = np.sum(sample_weight * residuals) / np.sum(sample_weight)
+                
+                # Also compute scale correction for calibration
+                # Using weighted regression: y = scale * y_pred + bias
+                y_pred_centered = y_pred_train - np.average(y_pred_train, weights=sample_weight)
+                y_centered = y - np.average(y, weights=sample_weight)
+                
+                scale_num = np.sum(sample_weight * y_centered * y_pred_centered)
+                scale_den = np.sum(sample_weight * y_pred_centered**2)
+                
+                if abs(scale_den) > 1e-10:
+                    self.scale_correction_ = scale_num / scale_den
+                    # Clamp scale correction to reasonable range
+                    self.scale_correction_ = np.clip(self.scale_correction_, 0.8, 1.25)
+            else:
+                self.bias_correction_ = np.mean(residuals)
+                self.scale_correction_ = 1.0
+            
+            logger.debug(f"Bias correction: {self.bias_correction_:.2f}, Scale: {self.scale_correction_:.3f}")
+        
         return self
     
-    def predict(self, X: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
+    def predict(self, X: Union[pd.DataFrame, np.ndarray], 
+                apply_correction: bool = True) -> np.ndarray:
         """
         Predict heating demand.
         
@@ -177,6 +214,8 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
         ----------
         X : DataFrame or array
             Features
+        apply_correction : bool
+            Whether to apply bias/scale correction
             
         Returns
         -------
@@ -190,6 +229,11 @@ class LightGBMHeatingModel(BaseEstimator, RegressorMixin):
             X = X.values
         
         predictions = self.model_.predict(X)
+        
+        # Apply bias and scale correction
+        if apply_correction and self.apply_bias_correction:
+            # Apply scale correction first, then bias
+            predictions = predictions * self.scale_correction_ + self.bias_correction_
         
         # Clip negative predictions (shouldn't happen with gamma but safety check)
         predictions, self.clip_rate_ = clip_predictions(predictions, min_val=0)

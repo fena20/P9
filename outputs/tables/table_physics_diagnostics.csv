@@ -1,6 +1,6 @@
-# Physics-consistency diagnostics by technology. Cold-Climate Bias = mean residual for HDD ≥ 6000. Tail Bias = mean residual for top 20% of observed energy. Negative bias = systematic underprediction. All metrics weighted by NWEIGHT, outer-fold predictions.
-Technology,n,Pop Share (%),Mean HDD,Overall Bias (%),Cold-Climate Bias (%),Tail Bias (%),Non-Physical (%)
-Combustion,11852,63.3,4366.3,-26.0,-26.246297192383466,-46.341005619639645,0.0
-Electric Heat Pump,2217,13.8,2518.9,24.8,24.362246233342418,-16.33068955917654,0.0
-Electric Resistance,1376,9.1,3699.1,18.7,20.875300088947245,-21.36392752526641,0.0
-Hybrid Ambiguous,2186,13.9,2949.5,6.1,17.63842673510663,-34.96367317133997,0.0
+# Physics-consistency diagnostics by technology. Cold Bias = weighted mean residual for HDD ≥ 6000 (as % of mean observed). Tail Bias = weighted mean residual for top 10% of observed energy (as % of mean). Negative bias = systematic underprediction. All metrics weighted by NWEIGHT, outer-fold predictions.
+Technology,n,Pop Share (%),Mean HDD,Overall Bias (%),n_cold (HDD≥6k),Cold Bias (%),n_tail (top 10%),Tail Bias (%),Non-Physical (%)
+Combustion,11852,63.3,4366.3,-17.2,3393,-17.237757872819444,1186,-45.5759015137687,0.0
+Electric Heat Pump,2217,13.8,2518.9,40.7,72,40.208711059758365,222,-23.165806667078684,0.0
+Electric Resistance,1376,9.1,3699.1,36.4,277,37.45040584351932,138,-20.073359604677083,0.0
+Hybrid Ambiguous,2186,13.9,2949.5,23.1,258,34.33396335679016,219,-39.53435330319463,0.0

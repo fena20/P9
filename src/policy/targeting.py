@@ -176,14 +176,21 @@ class PolicyTargeting:
         jaccard = intersection / union if union > 0 else 0
         
         # Dice coefficient (Sørensen–Dice): 2|A ∩ B| / (|A| + |B|)
-        # More intuitive "overlap" for equal-sized or near-equal sets
-        # For equal sets: Dice = 2J/(1+J)
+        # Measures overlap as harmonic mean of precision and recall
         dice = 2 * intersection / (n_a + n_b) if (n_a + n_b) > 0 else 0
         
-        # Szymkiewicz–Simpson overlap coefficient: |A ∩ B| / min(|A|, |B|)
+        # Recall (from perspective of weighted candidates)
+        # What fraction of weighted candidates are also in unweighted?
+        recall_weighted = intersection / n_a if n_a > 0 else 0
+        
+        # Precision (from perspective of unweighted candidates)
+        # What fraction of unweighted candidates are also in weighted?
+        precision_unweighted = intersection / n_b if n_b > 0 else 0
+        
+        # Containment coefficient: |A ∩ B| / min(|A|, |B|)
         # Equals 1.0 if smaller set is fully contained in larger
         min_size = min(n_a, n_b)
-        overlap_simpson = intersection / min_size if min_size > 0 else 0
+        containment = intersection / min_size if min_size > 0 else 0
         
         # Proportion only in weighted
         only_weighted = np.sum(candidates_a & ~candidates_b)
@@ -192,9 +199,11 @@ class PolicyTargeting:
         
         return {
             'jaccard_index': jaccard,
-            'dice_coefficient': dice,  # Primary "overlap rate" for reporting
-            'overlap_rate': dice,  # Alias for backward compatibility (now Dice, not Simpson)
-            'overlap_simpson': overlap_simpson,  # Original definition if needed
+            'dice_coefficient': dice,  # F1-like: harmonic mean of precision/recall
+            'recall_weighted': recall_weighted,  # Fraction of weighted also in unweighted
+            'precision_unweighted': precision_unweighted,  # Fraction of unweighted also in weighted
+            'containment': containment,  # Containment coefficient
+            'overlap_rate': dice,  # Alias for backward compatibility (now Dice)
             'intersection': intersection,
             'union': union,
             'n_weighted': n_a,
@@ -617,6 +626,16 @@ def create_targeting_summary_table(analysis_results: Dict[str, Any],
     rows.append({'Metric': 'Overlap Rate', 'Value': overlap_val,
                  'Description': 'Dice coefficient: 2×|A∩B| / (|A|+|B|)'})
     
+    # Recall and Containment metrics
+    if 'recall_weighted' in overlap:
+        rows.append({'Metric': 'Recall (Weighted)', 
+                    'Value': f"{overlap['recall_weighted']:.3f}",
+                    'Description': 'Fraction of weighted candidates also in unweighted'})
+    if 'containment' in overlap:
+        rows.append({'Metric': 'Containment',
+                    'Value': f"{overlap['containment']:.3f}",
+                    'Description': 'Intersection / min(|A|, |B|)'})
+    
     # Other metrics
     rows.extend([
         {'Metric': 'Only in Weighted', 
@@ -625,12 +644,21 @@ def create_targeting_summary_table(analysis_results: Dict[str, Any],
         {'Metric': 'Only in Unweighted',
          'Value': f"{overlap['only_unweighted']} ({overlap['pct_only_unweighted']:.1f}%)",
          'Description': 'Candidates selected only without weights'},
+    ])
+    
+    # Thresholds with correct units
+    if 'high_intensity' in score_name:
+        threshold_unit = 'kBTU/ft²'
+    else:
+        threshold_unit = 'kBTU'
+    
+    rows.extend([
         {'Metric': 'Weighted Threshold',
-         'Value': f"{score_results['weighted_threshold']:,.0f} kBTU",
-         'Description': f"Weighted {100-score_results.get('target_pct', 10):.0f}th percentile"},
+         'Value': f"{score_results['weighted_threshold']:,.0f} {threshold_unit}",
+         'Description': f"Weighted 90th percentile cutoff"},
         {'Metric': 'Unweighted Threshold',
-         'Value': f"{score_results['unweighted_threshold']:,.0f} kBTU",
-         'Description': f"Unweighted {100-score_results.get('target_pct', 10):.0f}th percentile"}
+         'Value': f"{score_results['unweighted_threshold']:,.0f} {threshold_unit}",
+         'Description': f"Unweighted 90th percentile cutoff"}
     ])
     
     result_df = pd.DataFrame(rows)
