@@ -166,14 +166,24 @@ class PolicyTargeting:
         dict
             Overlap metrics
         """
-        # Jaccard index: intersection / union
+        # Counts
+        n_a = candidates_a.sum()
+        n_b = candidates_b.sum()
         intersection = np.sum(candidates_a & candidates_b)
         union = np.sum(candidates_a | candidates_b)
+        
+        # Jaccard index: |A ∩ B| / |A ∪ B|
         jaccard = intersection / union if union > 0 else 0
         
-        # Overlap rate: intersection / min(|A|, |B|)
-        min_size = min(candidates_a.sum(), candidates_b.sum())
-        overlap_rate = intersection / min_size if min_size > 0 else 0
+        # Dice coefficient (Sørensen–Dice): 2|A ∩ B| / (|A| + |B|)
+        # More intuitive "overlap" for equal-sized or near-equal sets
+        # For equal sets: Dice = 2J/(1+J)
+        dice = 2 * intersection / (n_a + n_b) if (n_a + n_b) > 0 else 0
+        
+        # Szymkiewicz–Simpson overlap coefficient: |A ∩ B| / min(|A|, |B|)
+        # Equals 1.0 if smaller set is fully contained in larger
+        min_size = min(n_a, n_b)
+        overlap_simpson = intersection / min_size if min_size > 0 else 0
         
         # Proportion only in weighted
         only_weighted = np.sum(candidates_a & ~candidates_b)
@@ -182,13 +192,17 @@ class PolicyTargeting:
         
         return {
             'jaccard_index': jaccard,
-            'overlap_rate': overlap_rate,
+            'dice_coefficient': dice,  # Primary "overlap rate" for reporting
+            'overlap_rate': dice,  # Alias for backward compatibility (now Dice, not Simpson)
+            'overlap_simpson': overlap_simpson,  # Original definition if needed
             'intersection': intersection,
             'union': union,
+            'n_weighted': n_a,
+            'n_unweighted': n_b,
             'only_weighted': only_weighted,
             'only_unweighted': only_unweighted,
-            'pct_only_weighted': only_weighted / candidates_a.sum() * 100 if candidates_a.sum() > 0 else 0,
-            'pct_only_unweighted': only_unweighted / candidates_b.sum() * 100 if candidates_b.sum() > 0 else 0
+            'pct_only_weighted': only_weighted / n_a * 100 if n_a > 0 else 0,
+            'pct_only_unweighted': only_unweighted / n_b * 100 if n_b > 0 else 0
         }
     
     def _analyze_composition_shift(self,
@@ -601,7 +615,7 @@ def create_targeting_summary_table(analysis_results: Dict[str, Any],
         ovl = uncertainty_results['overlap']
         overlap_val = f"{ovl['estimate']:.3f} [{ovl['ci_lower']:.3f}, {ovl['ci_upper']:.3f}]"
     rows.append({'Metric': 'Overlap Rate', 'Value': overlap_val,
-                 'Description': 'Intersection / min(|Weighted|, |Unweighted|)'})
+                 'Description': 'Dice coefficient: 2×|A∩B| / (|A|+|B|)'})
     
     # Other metrics
     rows.extend([

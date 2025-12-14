@@ -335,7 +335,7 @@ def create_policy_targeting_table(targeting_results: Dict,
         {
             'Metric': 'Overlap Rate',
             'Value': f"{overlap['overlap_rate']:.3f}",
-            'Description': 'Intersection / min(|Weighted|, |Unweighted|)'
+            'Description': 'Dice coefficient: 2×|A∩B| / (|A|+|B|)'
         },
         {
             'Metric': 'Only in Weighted',
@@ -499,9 +499,11 @@ def create_equity_table(equity_df: pd.DataFrame,
     
     result_df = equity_df.copy()
     
-    # Handle income data which has 'income_group' column with labels already
+    # Handle specific label columns
     if 'income_group' in result_df.columns:
         result_df['Group'] = result_df['income_group']
+    elif 'climate_zone' in result_df.columns:
+        result_df['Group'] = result_df['climate_zone']
     else:
         label_col = result_df.columns[0]
         if label_map:
@@ -589,6 +591,183 @@ def create_hdd_diagnostics_table(bias_by_hdd_df: pd.DataFrame,
     )
     
     return result_df
+
+
+def create_h1_comparison_table(comparison_results: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Create H1 test table: Monolithic vs Split paired comparison.
+    
+    Shows per-fold metrics, mean ± SD, Δ values, and paired p-value.
+    This directly supports H1 hypothesis testing.
+    
+    Parameters
+    ----------
+    comparison_results : dict
+        Results from compare_split_vs_monolithic()
+        
+    Returns
+    -------
+    DataFrame
+        Paired comparison table
+    """
+    split_df = comparison_results['split_by_fold']
+    mono_df = comparison_results['mono_by_fold']
+    
+    results = []
+    
+    # Per-fold comparison
+    n_folds = len(split_df)
+    for fold in range(n_folds):
+        mono_row = mono_df.iloc[fold]
+        split_row = split_df.iloc[fold]
+        
+        results.append({
+            'Fold': fold + 1,
+            'Mono wRMSE': f"{mono_row['weighted_rmse']:,.0f}",
+            'Split wRMSE': f"{split_row['weighted_rmse']:,.0f}",
+            'Δ wRMSE': f"{mono_row['weighted_rmse'] - split_row['weighted_rmse']:+,.0f}",
+            'Mono wMAE': f"{mono_row['weighted_mae']:,.0f}",
+            'Split wMAE': f"{split_row['weighted_mae']:,.0f}",
+            'Δ wMAE': f"{mono_row['weighted_mae'] - split_row['weighted_mae']:+,.0f}",
+            'Mono wR²': f"{mono_row['weighted_r2']:.3f}",
+            'Split wR²': f"{split_row['weighted_r2']:.3f}",
+            'Δ wR²': f"{split_row['weighted_r2'] - mono_row['weighted_r2']:+.3f}",
+        })
+    
+    # Summary row
+    summary = {
+        'Fold': 'Mean ± SD',
+        'Mono wRMSE': f"{mono_df['weighted_rmse'].mean():,.0f} ± {mono_df['weighted_rmse'].std():,.0f}",
+        'Split wRMSE': f"{split_df['weighted_rmse'].mean():,.0f} ± {split_df['weighted_rmse'].std():,.0f}",
+        'Δ wRMSE': f"{(mono_df['weighted_rmse'] - split_df['weighted_rmse']).mean():+,.0f}",
+        'Mono wMAE': f"{mono_df['weighted_mae'].mean():,.0f} ± {mono_df['weighted_mae'].std():,.0f}",
+        'Split wMAE': f"{split_df['weighted_mae'].mean():,.0f} ± {split_df['weighted_mae'].std():,.0f}",
+        'Δ wMAE': f"{(mono_df['weighted_mae'] - split_df['weighted_mae']).mean():+,.0f}",
+        'Mono wR²': f"{mono_df['weighted_r2'].mean():.3f} ± {mono_df['weighted_r2'].std():.3f}",
+        'Split wR²': f"{split_df['weighted_r2'].mean():.3f} ± {split_df['weighted_r2'].std():.3f}",
+        'Δ wR²': f"{(split_df['weighted_r2'] - mono_df['weighted_r2']).mean():+.3f}",
+    }
+    results.append(summary)
+    
+    df = pd.DataFrame(results)
+    
+    # Add p-value to attrs
+    p_value = comparison_results.get('paired_p_value', np.nan)
+    improvement_pct = comparison_results.get('rmse_improvement_pct', 0)
+    
+    df.attrs['note'] = (
+        f"H1 Test: Monolithic vs Technology-Split models. "
+        f"Δ = Mono − Split (positive = Split better). "
+        f"Paired t-test p = {p_value:.4f}. "
+        f"RMSE improvement = {improvement_pct:.1f}%. "
+        f"Metrics computed on outer-fold test predictions, weighted by NWEIGHT."
+    )
+    
+    return df
+
+
+def create_physics_diagnostics_table(y_true: np.ndarray,
+                                      y_pred: np.ndarray,
+                                      weights: np.ndarray,
+                                      tech_group: np.ndarray,
+                                      hdd: np.ndarray) -> pd.DataFrame:
+    """
+    Create physics-consistency diagnostics table by technology.
+    
+    Includes:
+    - Non-physical rate (% predictions < 0)
+    - Cold-climate bias (HDD ≥ 6000)
+    - Tail underprediction index (top decile of observed)
+    - Overall bias
+    
+    Parameters
+    ----------
+    y_true : array
+        Observed values
+    y_pred : array
+        Predicted values
+    weights : array
+        Sample weights
+    tech_group : array
+        Technology group labels
+    hdd : array
+        Heating degree days
+        
+    Returns
+    -------
+    DataFrame
+        Physics diagnostics by technology
+    """
+    residuals = y_pred - y_true
+    
+    unique_techs = [t for t in np.unique(tech_group) 
+                   if t not in ['no_heating', 'unknown'] and not pd.isna(t)]
+    
+    results = []
+    
+    for tech in unique_techs:
+        mask = tech_group == tech
+        n = mask.sum()
+        w = weights[mask]
+        total_w = w.sum()
+        
+        # Non-physical rate
+        neg_preds = y_pred[mask] < 0
+        neg_rate = np.sum(w[neg_preds]) / total_w * 100 if total_w > 0 else 0
+        
+        # Cold-climate bias (HDD >= 6000)
+        cold_mask = mask & (hdd >= 6000)
+        if cold_mask.sum() > 0:
+            cold_bias = np.sum(weights[cold_mask] * residuals[cold_mask]) / np.sum(weights[cold_mask])
+            cold_bias_pct = cold_bias / np.sum(weights[cold_mask] * y_true[cold_mask]) * np.sum(weights[cold_mask]) * 100
+        else:
+            cold_bias = np.nan
+            cold_bias_pct = np.nan
+        
+        # Tail underprediction (top 20% of observed)
+        p80 = np.percentile(y_true[mask], 80)
+        tail_mask = mask & (y_true >= p80)
+        if tail_mask.sum() > 0:
+            tail_residual = np.sum(weights[tail_mask] * residuals[tail_mask]) / np.sum(weights[tail_mask])
+            tail_residual_pct = tail_residual / np.sum(weights[tail_mask] * y_true[tail_mask]) * np.sum(weights[tail_mask]) * 100
+        else:
+            tail_residual = np.nan
+            tail_residual_pct = np.nan
+        
+        # Overall bias
+        overall_bias = np.sum(w * residuals[mask]) / total_w if total_w > 0 else 0
+        overall_bias_pct = overall_bias / (np.sum(w * y_true[mask]) / total_w) * 100
+        
+        # Weighted mean HDD for this tech
+        mean_hdd = np.sum(w * hdd[mask]) / total_w if total_w > 0 else 0
+        
+        results.append({
+            'Technology': tech.replace('_', ' ').title(),
+            'n': n,
+            'Pop Share (%)': total_w / weights.sum() * 100,
+            'Mean HDD': mean_hdd,
+            'Overall Bias (%)': overall_bias_pct,
+            'Cold-Climate Bias (%)': cold_bias_pct if not np.isnan(cold_bias_pct) else 'N/A',
+            'Tail Bias (%)': tail_residual_pct if not np.isnan(tail_residual_pct) else 'N/A',
+            'Non-Physical (%)': neg_rate
+        })
+    
+    df = pd.DataFrame(results)
+    
+    # Round
+    for col in ['Pop Share (%)', 'Mean HDD', 'Overall Bias (%)', 'Non-Physical (%)']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').round(1)
+    
+    df.attrs['note'] = (
+        "Physics-consistency diagnostics by technology. "
+        "Cold-Climate Bias = mean residual for HDD ≥ 6000. "
+        "Tail Bias = mean residual for top 20% of observed energy. "
+        "Negative bias = systematic underprediction. "
+        "All metrics weighted by NWEIGHT, outer-fold predictions."
+    )
+    
+    return df
 
 
 def save_table_with_note(df: pd.DataFrame, 

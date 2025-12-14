@@ -1,7 +1,7 @@
 # Policy score: high_intensity. Top 10% candidates defined using weighted/unweighted 90th percentile threshold on outer-fold predictions.
 Metric,Value,Description
 Jaccard Index,0.910,Intersection / Union of candidate sets
-Overlap Rate,1.000,"Intersection / min(|Weighted|, |Unweighted|)"
+Overlap Rate,0.953,Dice coefficient: 2×|A∩B| / (|A|+|B|)
 Only in Weighted,174 (9.0%),Candidates selected only with weights
 Only in Unweighted,0 (0.0%),Candidates selected only without weights
 Weighted Threshold,31 kBTU,Weighted 90th percentile cutoff

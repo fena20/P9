@@ -777,4 +777,74 @@ class ErrorEquityAnalysis:
                 y_true, y_pred, metadata['MONEYPY'].values, weights
             )
         
+        # By HDD/climate (if available)
+        if 'HDD65' in metadata.columns:
+            results['by_climate'] = self.error_by_climate(
+                y_true, y_pred, metadata['HDD65'].values, weights
+            )
+        
         return results
+    
+    def error_by_climate(self, y_true: np.ndarray, y_pred: np.ndarray,
+                         hdd: np.ndarray, weights: np.ndarray) -> pd.DataFrame:
+        """
+        Analyze errors by climate zone (HDD bins).
+        
+        Parameters
+        ----------
+        y_true : array
+            True values
+        y_pred : array
+            Predicted values
+        hdd : array
+            Heating degree days
+        weights : array
+            Sample weights
+            
+        Returns
+        -------
+        DataFrame
+            Error metrics by climate zone
+        """
+        residuals = y_pred - y_true
+        abs_errors = np.abs(residuals)
+        
+        # Define climate zones based on HDD
+        climate_bins = [
+            ('Very Mild (<2k)', 0, 2000),
+            ('Mild (2-4k)', 2000, 4000),
+            ('Moderate (4-6k)', 4000, 6000),
+            ('Cold (6-8k)', 6000, 8000),
+            ('Very Cold (>8k)', 8000, float('inf'))
+        ]
+        
+        results = []
+        
+        for label, hdd_min, hdd_max in climate_bins:
+            mask = (hdd >= hdd_min) & (hdd < hdd_max)
+            if mask.sum() == 0:
+                continue
+            
+            grp_weights = weights[mask]
+            grp_residuals = residuals[mask]
+            grp_abs_errors = abs_errors[mask]
+            grp_true = y_true[mask]
+            
+            valid = ~np.isnan(grp_residuals)
+            
+            weighted_bias = np.sum(grp_weights[valid] * grp_residuals[valid]) / np.sum(grp_weights[valid])
+            weighted_mae = np.sum(grp_weights[valid] * grp_abs_errors[valid]) / np.sum(grp_weights[valid])
+            weighted_mean_true = np.sum(grp_weights[valid] * grp_true[valid]) / np.sum(grp_weights[valid])
+            
+            results.append({
+                'climate_zone': label,
+                'n_samples': mask.sum(),
+                'total_weight': grp_weights.sum(),
+                'weighted_bias': weighted_bias,
+                'weighted_mae': weighted_mae,
+                'weighted_mean_true': weighted_mean_true,
+                'bias_pct': (weighted_bias / weighted_mean_true * 100) if weighted_mean_true != 0 else np.nan,
+                'mae_pct': (weighted_mae / weighted_mean_true * 100) if weighted_mean_true != 0 else np.nan
+            })
+        
+        return pd.DataFrame(results)

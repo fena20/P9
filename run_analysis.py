@@ -248,10 +248,59 @@ def run_nested_cv(df: pd.DataFrame,
         print(f"  HDD correlation: {hdd_sens.get('correlation', 'N/A'):.3f}")
         print(f"  Correct HDD direction: {hdd_sens.get('is_correct_direction', 'N/A')}")
     
+    # Also run monolithic model for H1 comparison
+    print("\nRunning Monolithic model for H1 comparison...")
+    
+    def mono_model_factory(**params):
+        return LightGBMHeatingModel(params=params, use_monotonic_constraints=False)
+    
+    mono_cv = NestedCrossValidator(
+        outer_folds=n_outer_folds,
+        inner_folds=3,
+        n_search_iter=20,
+        random_state=42
+    )
+    
+    mono_result = mono_cv.run(
+        X, y, weights,
+        model_factory=mono_model_factory,
+        param_grid=param_grid,
+        feature_builder=feature_builder,
+        additional_metadata=metadata
+        # Note: no tech_group = monolithic
+    )
+    
+    # Paired comparison for H1 test
+    from scipy import stats
+    split_rmse = cv_result.outer_metrics_by_fold['weighted_rmse'].values
+    mono_rmse = mono_result.outer_metrics_by_fold['weighted_rmse'].values
+    
+    t_stat, p_value = stats.ttest_rel(split_rmse, mono_rmse)
+    
+    h1_comparison = {
+        'split_by_fold': cv_result.outer_metrics_by_fold,
+        'mono_by_fold': mono_result.outer_metrics_by_fold,
+        'split_metrics': cv_result.outer_metrics,
+        'mono_metrics': mono_result.outer_metrics,
+        'rmse_difference': mono_rmse.mean() - split_rmse.mean(),
+        'rmse_improvement_pct': (mono_rmse.mean() - split_rmse.mean()) / mono_rmse.mean() * 100,
+        'paired_t_statistic': t_stat,
+        'paired_p_value': p_value,
+        'mono_predictions': mono_cv.outer_predictions_
+    }
+    
+    print(f"\nH1 Test (Split vs Monolithic):")
+    print(f"  Split wRMSE: {split_rmse.mean():.0f} ± {split_rmse.std():.0f}")
+    print(f"  Mono wRMSE: {mono_rmse.mean():.0f} ± {mono_rmse.std():.0f}")
+    print(f"  Δ wRMSE: {h1_comparison['rmse_difference']:.0f} ({h1_comparison['rmse_improvement_pct']:.1f}%)")
+    print(f"  Paired t-test p-value: {p_value:.4f}")
+    
     return {
         'cv_result': cv_result,
         'predictions': cv.outer_predictions_,
-        'fold_results': cv.fold_results_
+        'fold_results': cv.fold_results_,
+        'h1_comparison': h1_comparison,
+        'mono_predictions': mono_cv.outer_predictions_
     }
 
 
@@ -469,6 +518,19 @@ def create_visualizations(df: pd.DataFrame,
                                    title="Nested Cross-Validation Results")
         viz.save_figure(fig, 'cv_results.png', str(figures_dir))
     
+    # NEW: Figure 4 - H1 Comparison: Split vs Monolithic Residuals
+    if cv_results and 'h1_comparison' in cv_results and 'mono_predictions' in cv_results:
+        fig = viz.plot_residual_vs_hdd_comparison(
+            y_true=df['TOTALBTUSPH'].values,
+            y_pred_split=predictions,
+            y_pred_mono=cv_results['mono_predictions'],
+            hdd=df['HDD65'].values,
+            weights=df['NWEIGHT'].values,
+            tech_group=df['tech_group'].values,
+            title="H1 Test: Residuals vs HDD — Split vs Monolithic"
+        )
+        viz.save_figure(fig, 'fig4_h1_split_vs_mono.png', str(figures_dir))
+    
     # Error equity (FIXED: separate panels, nMAE, group sizes, no typos)
     if 'equity' in diagnostic_results:
         fig = viz.plot_error_equity(
@@ -502,6 +564,7 @@ def save_results(df: pd.DataFrame,
         create_table1_descriptives, create_uncertainty_table,
         create_policy_targeting_table, create_composition_table,
         create_equity_table, create_hdd_diagnostics_table,
+        create_h1_comparison_table, create_physics_diagnostics_table,
         save_table_with_note
     )
     
@@ -536,6 +599,35 @@ def save_results(df: pd.DataFrame,
             "Table 2: Nested CV performance (outer-fold, weighted metrics). "
             "wRMSE and wMAE in kBTU. All metrics computed on out-of-sample predictions."
         )
+    
+    # NEW: Table 2b: H1 Comparison (Monolithic vs Split)
+    if cv_results and 'h1_comparison' in cv_results:
+        h1_table = create_h1_comparison_table(cv_results['h1_comparison'])
+        save_table_with_note(
+            h1_table,
+            str(tables_dir / 'table2b_h1_split_vs_mono.csv'),
+            h1_table.attrs.get('note', '')
+        )
+        print("\nTable 2b: H1 Comparison (Split vs Monolithic)")
+        print(h1_table.to_string())
+    
+    # NEW: Table - Physics Diagnostics by Technology
+    if cv_results and 'cv_result' in cv_results:
+        predictions = cv_results.get('predictions', np.zeros(len(df)))
+        physics_table = create_physics_diagnostics_table(
+            y_true=df['TOTALBTUSPH'].values,
+            y_pred=predictions,
+            weights=df['NWEIGHT'].values,
+            tech_group=df['tech_group'].values,
+            hdd=df['HDD65'].values
+        )
+        save_table_with_note(
+            physics_table,
+            str(tables_dir / 'table_physics_diagnostics.csv'),
+            physics_table.attrs.get('note', '')
+        )
+        print("\nPhysics Diagnostics by Technology:")
+        print(physics_table.to_string())
     
     # Table 3: Uncertainty with proper formatting
     if uncertainty_results and 'uncertainty_df' in uncertainty_results:

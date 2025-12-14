@@ -120,19 +120,28 @@ class HeatingDemandVisualizer:
         max_val = max(y_true.max(), y_pred.max())
         ax.plot([0, max_val], [0, max_val], 'r--', lw=2, label='y=x (perfect)')
         
-        # Calibration line (weighted regression of Ŷ on Y)
+        # Calibration line (weighted regression: Ŷ = a + b*Y)
+        # Shows systematic under/over-prediction
+        calib_a, calib_b = None, None
         if weights is not None:
-            from numpy.polynomial.polynomial import polyfit
             valid = ~(np.isnan(y_true) | np.isnan(y_pred))
-            # Weighted linear fit
-            w = weights[valid] / weights[valid].sum()
+            w = weights[valid]
             X = y_true[valid]
             Y = y_pred[valid]
-            slope = np.sum(w * X * Y) / np.sum(w * X * X)
-            intercept = np.sum(w * Y) - slope * np.sum(w * X)
-            x_line = np.array([0, max_val])
-            ax.plot(x_line, intercept + slope * x_line, 'g-', lw=2, 
-                   label=f'Calibration (slope={slope:.2f})')
+            # Weighted linear regression: Ŷ = a + b*Y
+            sum_w = np.sum(w)
+            sum_wx = np.sum(w * X)
+            sum_wy = np.sum(w * Y)
+            sum_wxx = np.sum(w * X * X)
+            sum_wxy = np.sum(w * X * Y)
+            # Solve normal equations
+            denom = sum_w * sum_wxx - sum_wx * sum_wx
+            if abs(denom) > 1e-10:
+                calib_b = (sum_w * sum_wxy - sum_wx * sum_wy) / denom
+                calib_a = (sum_wy - calib_b * sum_wx) / sum_w
+                x_line = np.array([0, max_val])
+                ax.plot(x_line, calib_a + calib_b * x_line, 'g-', lw=2, 
+                       label=f'Calibration: Ŷ = {calib_a:,.0f} + {calib_b:.3f}Y')
         
         ax.set_xlabel('Observed Energy (kBTU)', fontsize=11)
         ax.set_ylabel('Predicted Energy (kBTU)', fontsize=11)
@@ -154,10 +163,15 @@ class HeatingDemandVisualizer:
         
         sample_type = "Outer-fold (out-of-sample)" if is_outer_fold else "In-sample"
         
-        ax.annotate(f'{metric_type} Metrics ({sample_type}):\n'
-                   f'wR² = {r2:.3f}\n'
-                   f'wRMSE = {rmse:,.0f} kBTU\n'
-                   f'wMAE = {mae:,.0f} kBTU', 
+        # Build annotation text
+        ann_text = f'{metric_type} Metrics ({sample_type}):\n'
+        ann_text += f'wR² = {r2:.3f}\n'
+        ann_text += f'wRMSE = {rmse:,.0f} kBTU\n'
+        ann_text += f'wMAE = {mae:,.0f} kBTU'
+        if calib_a is not None and calib_b is not None:
+            ann_text += f'\nCalib: Ŷ = {calib_a:,.0f} + {calib_b:.3f}Y'
+        
+        ax.annotate(ann_text, 
                    xy=(0.05, 0.95), xycoords='axes fraction',
                    fontsize=10, verticalalignment='top',
                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
@@ -225,14 +239,31 @@ class HeatingDemandVisualizer:
             ax.scatter(yt, yp, alpha=0.5, s=15, c=self.tech_colors.get(group, 'gray'))
             
             max_val = max(yt.max(), yp.max())
-            ax.plot([0, max_val], [0, max_val], 'r--', lw=2)
+            ax.plot([0, max_val], [0, max_val], 'r--', lw=2, label='y=x')
+            
+            # Calibration line for this tech group
+            valid = ~(np.isnan(yt) | np.isnan(yp))
+            w = wt[valid]
+            X = yt[valid]
+            Y = yp[valid]
+            sum_w = np.sum(w)
+            sum_wx = np.sum(w * X)
+            sum_wy = np.sum(w * Y)
+            sum_wxx = np.sum(w * X * X)
+            sum_wxy = np.sum(w * X * Y)
+            denom = sum_w * sum_wxx - sum_wx * sum_wx
+            calib_b = (sum_w * sum_wxy - sum_wx * sum_wy) / denom if abs(denom) > 1e-10 else 1.0
+            calib_a = (sum_wy - calib_b * sum_wx) / sum_w if sum_w > 0 else 0
+            x_line = np.array([0, max_val])
+            ax.plot(x_line, calib_a + calib_b * x_line, 'g-', lw=2, alpha=0.8)
             
             r2 = metrics.weighted_r2(yt, yp, wt)
             rmse = metrics.weighted_rmse(yt, yp, wt)
+            bias = metrics.weighted_bias(yt, yp, wt)
             
-            ax.annotate(f'wR² = {r2:.3f}\nwRMSE = {rmse:,.0f}', 
+            ax.annotate(f'wR² = {r2:.3f}\nwRMSE = {rmse:,.0f}\nwBias = {bias:,.0f}\nslope = {calib_b:.3f}', 
                        xy=(0.05, 0.95), xycoords='axes fraction',
-                       fontsize=10, verticalalignment='top',
+                       fontsize=9, verticalalignment='top',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
             
             ax.set_xlabel('Observed (kBTU)')
@@ -351,6 +382,110 @@ class HeatingDemandVisualizer:
         plt.tight_layout()
         return fig
     
+    def plot_residual_vs_hdd_comparison(self,
+                                         y_true: np.ndarray,
+                                         y_pred_split: np.ndarray,
+                                         y_pred_mono: np.ndarray,
+                                         hdd: np.ndarray,
+                                         weights: np.ndarray,
+                                         tech_group: np.ndarray,
+                                         title: str = "Residuals vs HDD: Monolithic vs Split Models") -> plt.Figure:
+        """
+        Compare Monolithic vs Split model residuals by HDD.
+        
+        Supports H1 by showing whether splitting reduces HDD-related bias.
+        
+        Parameters
+        ----------
+        y_true : array
+            True values
+        y_pred_split : array
+            Predictions from split model
+        y_pred_mono : array
+            Predictions from monolithic model
+        hdd : array
+            HDD values
+        weights : array
+            Sample weights
+        tech_group : array
+            Technology group assignments
+        title : str
+            Plot title
+            
+        Returns
+        -------
+        Figure
+        """
+        residuals_split = y_pred_split - y_true
+        residuals_mono = y_pred_mono - y_true
+        
+        unique_groups = [g for g in np.unique(tech_group) 
+                        if g not in ['no_heating', 'unknown'] and not pd.isna(g)]
+        
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        axes = axes.flatten()
+        
+        for i, group in enumerate(unique_groups[:4]):
+            ax = axes[i]
+            mask = tech_group == group
+            
+            group_hdd = hdd[mask]
+            group_res_split = residuals_split[mask]
+            group_res_mono = residuals_mono[mask]
+            group_weights = weights[mask]
+            
+            # Create HDD bins
+            hdd_bins = pd.cut(group_hdd, bins=8)
+            
+            for res, label, color, marker in [
+                (group_res_split, 'Split', 'green', 's'),
+                (group_res_mono, 'Monolithic', 'blue', 'o')
+            ]:
+                bin_data = pd.DataFrame({
+                    'hdd': group_hdd,
+                    'residual': res,
+                    'weight': group_weights,
+                    'bin': hdd_bins
+                })
+                
+                bin_stats = []
+                for bin_label, bin_df in bin_data.groupby('bin', observed=True):
+                    if len(bin_df) < 5:
+                        continue
+                    
+                    w = bin_df['weight'].values
+                    r = bin_df['residual'].values
+                    
+                    weighted_mean = np.average(r, weights=w)
+                    weighted_se = np.sqrt(np.average((r - weighted_mean)**2, weights=w) / len(r))
+                    
+                    bin_stats.append({
+                        'center': bin_label.mid,
+                        'mean': weighted_mean,
+                        'se': weighted_se,
+                        'n': len(bin_df)
+                    })
+                
+                if bin_stats:
+                    bdf = pd.DataFrame(bin_stats)
+                    ax.errorbar(bdf['center'], bdf['mean'],
+                               yerr=1.96 * bdf['se'],
+                               fmt=f'{marker}-', color=color, lw=2, ms=7,
+                               capsize=3, label=label)
+            
+            ax.axhline(y=0, color='red', linestyle='--', lw=2, alpha=0.7)
+            ax.set_xlabel('HDD')
+            ax.set_ylabel('Residual (Ŷ - Y, kBTU)')
+            ax.set_title(f'{group.replace("_", " ").title()} (n={mask.sum():,})')
+            ax.legend(fontsize=9)
+            ax.grid(alpha=0.3)
+        
+        fig.suptitle(f'{title}\n'
+                    f'(Weighted mean ± 95% CI; closer to 0 = less bias)',
+                    fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        return fig
+    
     def plot_composition_shift(self,
                                composition_results: Dict[str, pd.DataFrame],
                                jaccard_index: float = None,
@@ -461,7 +596,8 @@ class HeatingDemandVisualizer:
         label_maps = {
             'by_housing_type': HOUSING_TYPE_LABELS,
             'by_tenure': TENURE_LABELS,
-            'by_income': INCOME_BIN_LABELS
+            'by_income': INCOME_BIN_LABELS,
+            'by_climate': {}  # Climate already has readable labels from error_by_climate
         }
         
         for col_idx, (group_name, df) in enumerate(equity_results.items()):
@@ -473,7 +609,12 @@ class HeatingDemandVisualizer:
             label_key = group_name.replace('by_', '')
             label_map = label_maps.get(group_name, {})
             
-            if label_map:
+            # Check for specific label columns
+            if 'income_group' in df.columns:
+                labels = df['income_group'].tolist()
+            elif 'climate_zone' in df.columns:
+                labels = df['climate_zone'].tolist()
+            elif label_map:
                 labels = [label_map.get(v, str(v)) for v in df[label_col]]
             else:
                 labels = [str(v) for v in df[label_col]]
