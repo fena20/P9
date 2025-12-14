@@ -553,12 +553,14 @@ class TargetingUncertainty:
         union = np.sum(candidates_w | candidates_uw)
         main_jaccard = intersection / union if union > 0 else 0
         
-        min_size = min(candidates_w.sum(), candidates_uw.sum())
-        main_overlap = intersection / min_size if min_size > 0 else 0
+        # Dice coefficient = 2 * intersection / (|A| + |B|)
+        n_w = candidates_w.sum()
+        n_uw = candidates_uw.sum()
+        main_dice = 2 * intersection / (n_w + n_uw) if (n_w + n_uw) > 0 else 0
         
         # Replicate estimates
         rep_jaccards = []
-        rep_overlaps = []
+        rep_dices = []
         
         for col in replicate_weights.columns[:self.n_replicates]:
             rep_w = replicate_weights[col].values
@@ -569,22 +571,24 @@ class TargetingUncertainty:
             rep_union = np.sum(rep_candidates | candidates_uw)
             rep_jaccard = rep_inter / rep_union if rep_union > 0 else 0
             
-            rep_min = min(rep_candidates.sum(), candidates_uw.sum())
-            rep_overlap = rep_inter / rep_min if rep_min > 0 else 0
+            # Dice for replicate
+            rep_n_w = rep_candidates.sum()
+            rep_dice = 2 * rep_inter / (rep_n_w + n_uw) if (rep_n_w + n_uw) > 0 else 0
             
             rep_jaccards.append(rep_jaccard)
-            rep_overlaps.append(rep_overlap)
+            rep_dices.append(rep_dice)
         
         rep_jaccards = np.array(rep_jaccards)
-        rep_overlaps = np.array(rep_overlaps)
+        rep_dices = np.array(rep_dices)
         n = len(rep_jaccards)
         
-        # Jackknife variance
+        # Jackknife variance (RECS SDR method: multiply by 4/n for successive difference)
+        # Standard jackknife: (n-1)/n * sum((x - mean)^2)
         jaccard_var = (n - 1) / n * np.sum((rep_jaccards - rep_jaccards.mean()) ** 2)
         jaccard_se = np.sqrt(jaccard_var)
         
-        overlap_var = (n - 1) / n * np.sum((rep_overlaps - rep_overlaps.mean()) ** 2)
-        overlap_se = np.sqrt(overlap_var)
+        dice_var = (n - 1) / n * np.sum((rep_dices - rep_dices.mean()) ** 2)
+        dice_se = np.sqrt(dice_var)
         
         return {
             'jaccard': {
@@ -593,11 +597,11 @@ class TargetingUncertainty:
                 'ci_lower': max(0, main_jaccard - z * jaccard_se),
                 'ci_upper': min(1, main_jaccard + z * jaccard_se)
             },
-            'overlap': {
-                'estimate': main_overlap,
-                'se': overlap_se,
-                'ci_lower': max(0, main_overlap - z * overlap_se),
-                'ci_upper': min(1, main_overlap + z * overlap_se)
+            'overlap': {  # This is now Dice coefficient, not Containment
+                'estimate': main_dice,
+                'se': dice_se,
+                'ci_lower': max(0, main_dice - z * dice_se),
+                'ci_upper': min(1, main_dice + z * dice_se)
             },
             'n_weighted_candidates': int(candidates_w.sum()),
             'n_unweighted_candidates': int(candidates_uw.sum())

@@ -164,6 +164,89 @@ class JackknifeUncertainty:
                 logger.warning(f"Error computing uncertainty for {metric_name}: {e}")
         
         return pd.DataFrame(results)
+    
+    def compute_delta_metrics_ci(self,
+                                  y_true: np.ndarray,
+                                  y_pred_a: np.ndarray,
+                                  y_pred_b: np.ndarray,
+                                  main_weights: np.ndarray,
+                                  replicate_weights: pd.DataFrame) -> Dict[str, Dict]:
+        """
+        Compute CI for difference in metrics between two models.
+        
+        Δ = metric(model_a) - metric(model_b)
+        
+        This is more appropriate than t-test on 5 folds, as it uses
+        the full cross-fitted predictions and replicate weights.
+        
+        Parameters
+        ----------
+        y_true : array
+            True values
+        y_pred_a : array
+            Predictions from model A (e.g., Monolithic)
+        y_pred_b : array
+            Predictions from model B (e.g., Split)
+        main_weights : array
+            Main survey weights
+        replicate_weights : DataFrame
+            Replicate weights (NWEIGHT1-60)
+            
+        Returns
+        -------
+        dict
+            Delta metrics with CIs
+        """
+        metrics = WeightedMetrics()
+        
+        results = {}
+        
+        for metric_name, func in [('delta_rmse', metrics.weighted_rmse),
+                                   ('delta_mae', metrics.weighted_mae),
+                                   ('delta_r2', metrics.weighted_r2),
+                                   ('delta_bias', metrics.weighted_bias)]:
+            
+            # Main estimate
+            main_a = func(y_true, y_pred_a, main_weights)
+            main_b = func(y_true, y_pred_b, main_weights)
+            
+            if metric_name == 'delta_r2':
+                # For R², higher is better, so delta = B - A
+                main_delta = main_b - main_a
+            else:
+                # For RMSE/MAE/Bias, lower is better, so delta = A - B
+                main_delta = main_a - main_b
+            
+            # Replicate estimates
+            rep_deltas = []
+            for col in replicate_weights.columns[:self.n_replicates]:
+                rep_w = replicate_weights[col].values
+                rep_a = func(y_true, y_pred_a, rep_w)
+                rep_b = func(y_true, y_pred_b, rep_w)
+                
+                if metric_name == 'delta_r2':
+                    rep_delta = rep_b - rep_a
+                else:
+                    rep_delta = rep_a - rep_b
+                rep_deltas.append(rep_delta)
+            
+            rep_deltas = np.array(rep_deltas)
+            n = len(rep_deltas)
+            
+            # Jackknife variance
+            variance = (n - 1) / n * np.sum((rep_deltas - rep_deltas.mean()) ** 2)
+            se = np.sqrt(variance)
+            
+            results[metric_name] = {
+                'estimate': main_delta,
+                'se': se,
+                'ci_lower': main_delta - self.z_score * se,
+                'ci_upper': main_delta + self.z_score * se,
+                'model_a': main_a,
+                'model_b': main_b
+            }
+        
+        return results
 
 
 class RefitSensitivity:

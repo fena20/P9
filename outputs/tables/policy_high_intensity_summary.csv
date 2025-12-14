@@ -12,4 +12,4 @@ Unweighted Threshold,34 kBTU/ft²,Unweighted 90th percentile cutoff
 Jaccard (Equal Budget),0.327,Jaccard when both select same N candidates
 Dice (Equal Budget),0.493,Dice coefficient for equal-budget lists
 Jaccard Index (95% CI),"0.890 [0.842, 0.937]",Jaccard with replicate-weight 95% CI (SE=0.024)
-Dice Overlap (95% CI),"1.000 [1.000, 1.000]",Dice with replicate-weight 95% CI (SE=0.000)
+Dice Overlap (95% CI),"0.942 [0.915, 0.968]",Dice with replicate-weight 95% CI (SE=0.014)

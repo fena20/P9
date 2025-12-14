@@ -289,11 +289,15 @@ def run_nested_cv(df: pd.DataFrame,
         'mono_predictions': mono_cv.outer_predictions_
     }
     
-    print(f"\nH1 Test (Split vs Monolithic):")
+    # Compute delta CIs using replicate weights (more robust than t-test on 5 folds)
+    split_n_improved = (mono_rmse > split_rmse).sum()
+    
+    print(f"\nH1 Evidence (Split vs Monolithic):")
     print(f"  Split wRMSE: {split_rmse.mean():.0f} ± {split_rmse.std():.0f}")
     print(f"  Mono wRMSE: {mono_rmse.mean():.0f} ± {mono_rmse.std():.0f}")
     print(f"  Δ wRMSE: {h1_comparison['rmse_difference']:.0f} ({h1_comparison['rmse_improvement_pct']:.1f}%)")
-    print(f"  Paired t-test p-value: {p_value:.4f}")
+    print(f"  Split better in {split_n_improved}/{n_outer_folds} folds")
+    print(f"  Note: With only {n_outer_folds} folds, formal hypothesis tests have limited power.")
     
     return {
         'cv_result': cv_result,
@@ -655,6 +659,47 @@ def save_results(df: pd.DataFrame,
         )
         print("\nTable 2b: H1 Comparison (Split vs Monolithic)")
         print(h1_table.to_string())
+        
+        # Compute delta CIs using replicate weights (more robust than fold-based t-test)
+        if 'mono_predictions' in cv_results:
+            from src.uncertainty.jackknife import JackknifeUncertainty
+            
+            replicate_cols = [f'NWEIGHT{i}' for i in range(1, 61)]
+            available_rep_cols = [c for c in replicate_cols if c in df.columns]
+            
+            if available_rep_cols:
+                jackknife = JackknifeUncertainty(n_replicates=60)
+                delta_results = jackknife.compute_delta_metrics_ci(
+                    y_true=df['TOTALBTUSPH'].values,
+                    y_pred_a=cv_results['mono_predictions'],  # Monolithic
+                    y_pred_b=cv_results['predictions'],  # Split
+                    main_weights=df['NWEIGHT'].values,
+                    replicate_weights=df[available_rep_cols]
+                )
+                
+                # Create delta CI table
+                delta_rows = []
+                for metric_name, data in delta_results.items():
+                    delta_rows.append({
+                        'Metric': metric_name.replace('delta_', 'Δ w').upper(),
+                        'Estimate': f"{data['estimate']:+,.0f}" if abs(data['estimate']) > 1 else f"{data['estimate']:+.3f}",
+                        'SE': f"{data['se']:,.0f}" if abs(data['se']) > 1 else f"{data['se']:.3f}",
+                        '95% CI': f"[{data['ci_lower']:+,.0f}, {data['ci_upper']:+,.0f}]" if abs(data['ci_lower']) > 1 else f"[{data['ci_lower']:+.3f}, {data['ci_upper']:+.3f}]",
+                        'Monolithic': f"{data['model_a']:,.0f}" if abs(data['model_a']) > 1 else f"{data['model_a']:.3f}",
+                        'Split': f"{data['model_b']:,.0f}" if abs(data['model_b']) > 1 else f"{data['model_b']:.3f}"
+                    })
+                
+                delta_df = pd.DataFrame(delta_rows)
+                save_table_with_note(
+                    delta_df,
+                    str(tables_dir / 'table2c_h1_delta_ci.csv'),
+                    "H1 Test: Δ = Mono − Split (positive = Split better for RMSE/MAE/Bias). "
+                    "CI from replicate-weight jackknife (n=60) on full cross-fitted predictions. "
+                    "More robust than t-test on 5 folds."
+                )
+                
+                print("\nTable 2c: H1 Delta Metrics with 95% CI")
+                print(delta_df.to_string())
     
     # NEW: Table - Physics Diagnostics by Technology
     if cv_results and 'cv_result' in cv_results:

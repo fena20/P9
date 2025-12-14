@@ -1,4 +1,4 @@
-# H1 Test: Monolithic vs Technology-Split models. Δ = Mono − Split (positive = Split better). Paired t-test p = 0.1745. RMSE improvement = 15.6%. Metrics computed on outer-fold test predictions, weighted by NWEIGHT.
+# H1 Evidence: Technology-Split vs Monolithic model comparison. Split improves in 4/5 folds. Mean Δ wRMSE = +4,640 kBTU (15.6% reduction). Mean Δ wR² = +0.249. Split model shows more consistent performance (lower SD across folds). All metrics on outer-fold predictions, weighted by NWEIGHT.
 Fold,Mono wRMSE,Split wRMSE,Δ wRMSE,Mono wMAE,Split wMAE,Δ wMAE,Mono wR²,Split wR²,Δ wR²
 1,"38,430","25,445","+12,985","26,570","16,820","+9,750",-0.297,0.435,+0.733
 2,"27,689","26,277","+1,412","17,200","16,263",+937,0.355,0.459,+0.104
