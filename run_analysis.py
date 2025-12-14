@@ -691,17 +691,45 @@ def save_results(df: pd.DataFrame,
             note
         )
     
-    # Policy targeting tables
+    # Policy targeting tables with uncertainty
     if policy_results and 'weighted_vs_unweighted' in policy_results:
         for score_name in ['high_use', 'high_intensity', 'excess_demand']:
             if score_name in policy_results['weighted_vs_unweighted']:
-                # Summary table
+                # Summary table with CIs
                 summary_table = create_policy_targeting_table(policy_results, score_name)
+                
+                # Add Jaccard CIs if available
+                if 'uncertainty' in policy_results and score_name in policy_results['uncertainty']:
+                    unc = policy_results['uncertainty'][score_name]
+                    ci_rows = []
+                    
+                    # Add Jaccard CI row
+                    if 'jaccard' in unc:
+                        j = unc['jaccard']
+                        ci_rows.append({
+                            'Metric': 'Jaccard Index (95% CI)',
+                            'Value': f"{j['estimate']:.3f} [{j['ci_lower']:.3f}, {j['ci_upper']:.3f}]",
+                            'Description': f"Jaccard with replicate-weight 95% CI (SE={j['se']:.3f})"
+                        })
+                    
+                    # Add Overlap CI row
+                    if 'overlap' in unc:
+                        o = unc['overlap']
+                        ci_rows.append({
+                            'Metric': 'Dice Overlap (95% CI)',
+                            'Value': f"{o['estimate']:.3f} [{o['ci_lower']:.3f}, {o['ci_upper']:.3f}]",
+                            'Description': f"Dice with replicate-weight 95% CI (SE={o['se']:.3f})"
+                        })
+                    
+                    if ci_rows:
+                        ci_df = pd.DataFrame(ci_rows)
+                        summary_table = pd.concat([summary_table, ci_df], ignore_index=True)
+                
                 if len(summary_table) > 0:
                     save_table_with_note(
                         summary_table,
                         str(tables_dir / f'policy_{score_name}_summary.csv'),
-                        summary_table.attrs.get('note', '')
+                        summary_table.attrs.get('note', '') + " Jaccard/Dice CIs from replicate-weight jackknife."
                     )
                 
                 # Composition tables with human-readable labels

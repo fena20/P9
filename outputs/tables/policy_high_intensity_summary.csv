@@ -1,4 +1,4 @@
-# Policy score: high_intensity. Top 10% candidates defined using weighted/unweighted 90th percentile threshold on outer-fold predictions.
+#  Jaccard/Dice CIs from replicate-weight jackknife.
 Metric,Value,Description
 Jaccard Index,0.890,Intersection / Union of candidate sets
 Dice Overlap,0.942,Dice coefficient: 2×|A∩B| / (|A|+|B|)
@@ -11,3 +11,5 @@ Unweighted Threshold,34 kBTU/ft²,Unweighted 90th percentile cutoff
 --- Equal Budget (N fixed) ---,,Both methods select top 1983 candidates
 Jaccard (Equal Budget),0.327,Jaccard when both select same N candidates
 Dice (Equal Budget),0.493,Dice coefficient for equal-budget lists
+Jaccard Index (95% CI),"0.890 [0.842, 0.937]",Jaccard with replicate-weight 95% CI (SE=0.024)
+Dice Overlap (95% CI),"1.000 [1.000, 1.000]",Dice with replicate-weight 95% CI (SE=0.000)

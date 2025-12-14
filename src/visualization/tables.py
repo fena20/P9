@@ -794,11 +794,30 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
         # Weighted mean HDD for this tech
         mean_hdd = np.sum(w * hdd[mask]) / total_w if total_w > 0 else 0
         
+        # Target variance (weighted) - explains low R² for some groups
+        mean_y = np.sum(w * y_true[mask]) / total_w
+        target_var = np.sum(w * (y_true[mask] - mean_y)**2) / total_w
+        target_std = np.sqrt(target_var)
+        cv_target = target_std / mean_y * 100 if mean_y > 0 else np.nan  # Coefficient of variation
+        
+        # Weighted correlation (r) - more robust than R² for subgroups
+        mean_pred = np.sum(w * y_pred[mask]) / total_w
+        cov_xy = np.sum(w * (y_true[mask] - mean_y) * (y_pred[mask] - mean_pred)) / total_w
+        std_pred = np.sqrt(np.sum(w * (y_pred[mask] - mean_pred)**2) / total_w)
+        
+        if target_std > 0 and std_pred > 0:
+            weighted_corr = cov_xy / (target_std * std_pred)
+        else:
+            weighted_corr = np.nan
+        
         results.append({
             'Technology': tech.replace('_', ' ').title(),
             'n': n,
             'Pop Share (%)': total_w / weights.sum() * 100,
             'Mean HDD': mean_hdd,
+            'Target SD (kBTU)': target_std,
+            'Target CV (%)': cv_target,
+            'Weighted r': weighted_corr,
             'Overall Bias (%)': overall_bias_pct,
             'n_cold (HDD≥6k)': n_cold,
             'Cold Bias (%)': cold_bias_pct if not np.isnan(cold_bias_pct) else 'N/A',
@@ -810,9 +829,15 @@ def create_physics_diagnostics_table(y_true: np.ndarray,
     df = pd.DataFrame(results)
     
     # Round
-    for col in ['Pop Share (%)', 'Mean HDD', 'Overall Bias (%)', 'Non-Physical (%)']:
+    for col in ['Pop Share (%)', 'Mean HDD', 'Overall Bias (%)', 'Non-Physical (%)', 
+                'Target SD (kBTU)', 'Target CV (%)', 'Weighted r']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').round(1)
+            if col == 'Weighted r':
+                df[col] = pd.to_numeric(df[col], errors='coerce').round(3)
+            elif col == 'Target SD (kBTU)':
+                df[col] = pd.to_numeric(df[col], errors='coerce').round(0)
+            else:
+                df[col] = pd.to_numeric(df[col], errors='coerce').round(1)
     
     df.attrs['note'] = (
         "Physics-consistency diagnostics by technology. "
@@ -883,6 +908,90 @@ def create_baseline_comparison_table(baseline_results: pd.DataFrame,
             f"RMSE improvement: {improvement:.1f}% over mean baseline. "
             f"All metrics weighted by NWEIGHT, outer-fold predictions."
         )
+    
+    return df
+
+
+def create_calibration_comparison_table(before_metrics: Dict, after_metrics: Dict,
+                                         before_diagnostics: Dict = None,
+                                         after_diagnostics: Dict = None) -> pd.DataFrame:
+    """
+    Create before/after calibration comparison table.
+    
+    Parameters
+    ----------
+    before_metrics : dict
+        Metrics before calibration
+    after_metrics : dict
+        Metrics after calibration
+    before_diagnostics : dict, optional
+        Physics diagnostics before
+    after_diagnostics : dict, optional
+        Physics diagnostics after
+        
+    Returns
+    -------
+    DataFrame
+        Calibration comparison table
+    """
+    rows = []
+    
+    # Performance metrics
+    metrics = [
+        ('wRMSE (kBTU)', 'weighted_rmse'),
+        ('wMAE (kBTU)', 'weighted_mae'),
+        ('wR²', 'weighted_r2'),
+        ('wBias (kBTU)', 'weighted_bias'),
+    ]
+    
+    for label, key in metrics:
+        before = before_metrics.get(key, np.nan)
+        after = after_metrics.get(key, np.nan)
+        
+        if key == 'weighted_r2':
+            change = after - before
+            change_str = f"+{change:.3f}" if change > 0 else f"{change:.3f}"
+        else:
+            pct_change = (after - before) / abs(before) * 100 if before != 0 else 0
+            change_str = f"{pct_change:+.1f}%"
+        
+        rows.append({
+            'Metric': label,
+            'Before Calibration': f"{before:,.0f}" if abs(before) > 10 else f"{before:.3f}",
+            'After Calibration': f"{after:,.0f}" if abs(after) > 10 else f"{after:.3f}",
+            'Change': change_str
+        })
+    
+    # Calibration slope (if available)
+    if 'calibration_slope' in before_metrics or 'calibration_slope' in after_metrics:
+        rows.append({
+            'Metric': 'Calibration Slope',
+            'Before Calibration': f"{before_metrics.get('calibration_slope', 'N/A'):.3f}",
+            'After Calibration': f"{after_metrics.get('calibration_slope', 'N/A'):.3f}",
+            'Change': '→ closer to 1.0'
+        })
+    
+    # Physics diagnostics
+    if before_diagnostics and after_diagnostics:
+        for tech in ['Combustion', 'Electric Heat Pump']:
+            if tech in before_diagnostics and tech in after_diagnostics:
+                before_tail = before_diagnostics[tech].get('tail_bias_pct', np.nan)
+                after_tail = after_diagnostics[tech].get('tail_bias_pct', np.nan)
+                
+                rows.append({
+                    'Metric': f'Tail Bias - {tech} (%)',
+                    'Before Calibration': f"{before_tail:.1f}%",
+                    'After Calibration': f"{after_tail:.1f}%",
+                    'Change': f"{after_tail - before_tail:+.1f}pp"
+                })
+    
+    df = pd.DataFrame(rows)
+    
+    df.attrs['note'] = (
+        "Comparison of model performance before and after isotonic calibration. "
+        "Calibration applies monotonic correction to reduce tail underprediction. "
+        "All metrics on outer-fold predictions, weighted by NWEIGHT."
+    )
     
     return df
 
