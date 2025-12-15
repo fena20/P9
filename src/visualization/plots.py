@@ -914,18 +914,21 @@ class HeatingDemandVisualizer:
         
         # ===== Panel 1: Calibration curves with markers =====
         ax = axes[0]
-        # Use different markers and line styles for colorblind accessibility
-        ax.plot(true_means, pred_means_b, 'o--', color='#D62728', label='Before', 
+        # Colorblind-safe palette: blue (#0072B2) vs orange (#E69F00)
+        color_before = '#0072B2'  # Blue
+        color_after = '#E69F00'   # Orange
+        
+        ax.plot(true_means, pred_means_b, 'o--', color=color_before, label='Before', 
                 markersize=9, linewidth=2, markerfacecolor='white', markeredgewidth=2)
-        ax.plot(true_means, pred_means_a, 's-', color='#2CA02C', label='After',
-                markersize=8, linewidth=2)
+        ax.plot(true_means, pred_means_a, 's-', color=color_after, label='After',
+                markersize=8, linewidth=2.5)
         
         # Perfect calibration line
         max_val = max(max(true_means), max(pred_means_b), max(pred_means_a)) * 1.05
         ax.plot([0, max_val], [0, max_val], 'k:', label='Perfect (y=x)', linewidth=2, alpha=0.7)
         
-        ax.set_xlabel('Mean Observed (kBTU)', fontsize=11)
-        ax.set_ylabel('Mean Predicted (kBTU)', fontsize=11)
+        ax.set_xlabel('Mean Observed Ȳ (kBTU)', fontsize=11)
+        ax.set_ylabel('Mean Predicted Ŷ (kBTU)', fontsize=11)
         ax.set_title('(a) Calibration Curve by Decile', fontsize=12, fontweight='bold')
         ax.legend(loc='upper left', fontsize=9)
         ax.grid(alpha=0.3)
@@ -943,11 +946,11 @@ class HeatingDemandVisualizer:
         x = np.arange(len(deciles))
         width = 0.35
         
-        # Bars with error bars - different hatching for accessibility
+        # Colorblind-safe: blue with hatching vs orange solid
         bars1 = ax.bar(x - width/2, bias_pct_b, width, label='Before', 
-                      color='#D62728', alpha=0.7, hatch='///', edgecolor='black')
+                      color=color_before, alpha=0.7, hatch='///', edgecolor='black')
         bars2 = ax.bar(x + width/2, bias_pct_a, width, label='After', 
-                      color='#2CA02C', alpha=0.7, edgecolor='black')
+                      color=color_after, alpha=0.7, edgecolor='black')
         
         # Add error bars (95% CI from bootstrap)
         ax.errorbar(x - width/2, bias_pct_b, yerr=[ci_b_lower, ci_b_upper], 
@@ -956,16 +959,16 @@ class HeatingDemandVisualizer:
                    fmt='none', color='black', capsize=3, linewidth=1)
         
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
-        ax.set_xlabel('Decile of Observed Consumption', fontsize=11)
-        ax.set_ylabel('Bias (%) = 100×(Ŷ−Y)/Ȳ', fontsize=11)
+        ax.set_xlabel('Decile of Observed Consumption Y', fontsize=11)
+        ax.set_ylabel('Bias (%) = 100×(Ŷ−Y)/Ȳ_decile', fontsize=11)
         ax.set_title('(b) Weighted Bias by Decile (95% CI)', fontsize=12, fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels([f'D{d}\n(n={n})' for d, n in zip(deciles, n_per_decile)], fontsize=8)
         ax.legend(loc='upper right', fontsize=9)
         ax.grid(alpha=0.3, axis='y')
         
-        # Annotate extreme deciles
-        ax.annotate(f'D1: {bias_pct_b[0]:.0f}%→{bias_pct_a[0]:.0f}%\n(small Y, high ratio)',
+        # Annotate extreme deciles - note: Ȳ (observed mean) is small, not Ŷ
+        ax.annotate(f'D1: {bias_pct_b[0]:.0f}%→{bias_pct_a[0]:.0f}%\n(Ȳ≈{true_means[0]/1000:.1f}k, small denom.)',
                    xy=(x[0], max(bias_pct_b[0], bias_pct_a[0])), 
                    xytext=(x[0]+1.5, max(bias_pct_b[0], bias_pct_a[0])*0.7),
                    fontsize=8, arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
@@ -977,7 +980,7 @@ class HeatingDemandVisualizer:
                    fontsize=8, arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
                    bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.9))
         
-        # ===== Panel 3: Scatter with calibration slopes =====
+        # ===== Panel 3: Scatter with calibration slopes (WEIGHTED regression) =====
         ax = axes[2]
         
         # Subsample for visibility
@@ -986,26 +989,39 @@ class HeatingDemandVisualizer:
         idx = np.random.choice(len(y_true), n_plot, replace=False)
         
         # Different markers for accessibility
-        ax.scatter(y_true[idx], y_pred_before[idx], alpha=0.15, s=8, c='#D62728', 
+        ax.scatter(y_true[idx], y_pred_before[idx], alpha=0.15, s=8, c=color_before, 
                   marker='o', label='Before')
-        ax.scatter(y_true[idx], y_pred_after[idx], alpha=0.15, s=8, c='#2CA02C', 
+        ax.scatter(y_true[idx], y_pred_after[idx], alpha=0.15, s=8, c=color_after, 
                   marker='s', label='After')
         
-        # Fit calibration lines
-        from scipy import stats as scipy_stats
-        slope_b, intercept_b, _, _, _ = scipy_stats.linregress(y_true, y_pred_before)
-        slope_a, intercept_a, _, _, _ = scipy_stats.linregress(y_true, y_pred_after)
+        # Fit WEIGHTED calibration lines using NWEIGHT
+        # Weighted linear regression: Ŷ = a + b*Y
+        def weighted_linregress(x, y, w):
+            """Compute weighted linear regression slope and intercept."""
+            w_sum = np.sum(w)
+            x_mean = np.sum(w * x) / w_sum
+            y_mean = np.sum(w * y) / w_sum
+            
+            numerator = np.sum(w * (x - x_mean) * (y - y_mean))
+            denominator = np.sum(w * (x - x_mean) ** 2)
+            
+            slope = numerator / denominator if denominator > 0 else 0
+            intercept = y_mean - slope * x_mean
+            return slope, intercept
+        
+        slope_b, intercept_b = weighted_linregress(y_true, y_pred_before, weights)
+        slope_a, intercept_a = weighted_linregress(y_true, y_pred_after, weights)
         
         x_line = np.array([0, y_true.max()])
-        ax.plot(x_line, slope_b * x_line + intercept_b, '--', color='#D62728', linewidth=2.5,
+        ax.plot(x_line, slope_b * x_line + intercept_b, '--', color=color_before, linewidth=2.5,
                label=f'Before: Ŷ={intercept_b/1000:.1f}k+{slope_b:.2f}Y')
-        ax.plot(x_line, slope_a * x_line + intercept_a, '-', color='#2CA02C', linewidth=2.5,
+        ax.plot(x_line, slope_a * x_line + intercept_a, '-', color=color_after, linewidth=2.5,
                label=f'After: Ŷ={intercept_a/1000:.1f}k+{slope_a:.2f}Y')
         ax.plot(x_line, x_line, 'k:', label='Perfect (slope=1)', linewidth=2, alpha=0.7)
         
-        ax.set_xlabel('Observed (kBTU)', fontsize=11)
-        ax.set_ylabel('Predicted (kBTU)', fontsize=11)
-        ax.set_title('(c) Calibration Slope', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Observed Y (kBTU)', fontsize=11)
+        ax.set_ylabel('Predicted Ŷ (kBTU)', fontsize=11)
+        ax.set_title('(c) Calibration Slope (Weighted Regression)', fontsize=12, fontweight='bold')
         ax.legend(loc='upper left', fontsize=8)
         ax.grid(alpha=0.3)
         
@@ -1014,17 +1030,17 @@ class HeatingDemandVisualizer:
         ax.set_xlim(0, max_lim)
         ax.set_ylim(0, max_lim)
         
-        # Add text box explaining slope
-        ax.text(0.98, 0.05, f'Slope improvement:\n{slope_b:.3f} → {slope_a:.3f}\n(target = 1.0)',
+        # Add text box explaining slope (weighted)
+        ax.text(0.98, 0.05, f'Weighted slope:\n{slope_b:.3f} → {slope_a:.3f}\n(target = 1.0)',
                transform=ax.transAxes, fontsize=9, verticalalignment='bottom',
                horizontalalignment='right',
                bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
         
         # Main title with formula explanation
         fig.suptitle(f'{title}\n'
-                    f'Bias = 100×(Ŷ−Y)/Ȳ_decile, weighted by NWEIGHT (survey weights)\n'
-                    f'Note: D1 high bias due to small observed values (Ȳ≈{true_means[0]/1000:.1f}k kBTU); '
-                    f'D10 underprediction is the policy-relevant concern', 
+                    f'Bias (%) = 100×(Ŷ−Y)/Ȳ_decile | Regression weighted by NWEIGHT\n'
+                    f'Note: D1 has small Ȳ≈{true_means[0]/1000:.1f}k kBTU → high % bias; '
+                    f'D10 underprediction (−{abs(bias_pct_a[-1]):.0f}%) is policy-relevant', 
                     fontsize=11, fontweight='bold')
         plt.tight_layout(rect=[0, 0, 1, 0.90])
         return fig
