@@ -791,8 +791,11 @@ class HeatingDemandVisualizer:
         Plot calibration comparison before and after isotonic calibration.
         
         Shows:
-        - Left: Calibration curves (predicted vs observed by decile)
-        - Right: Decile error comparison
+        - Left: Calibration curves (predicted vs observed by decile) with CI
+        - Middle: Decile bias comparison with error bars
+        - Right: Scatter with calibration slopes
+        
+        Bias formula: 100 × (Ŷ - Y) / Ȳ_decile, weighted by NWEIGHT
         
         Parameters
         ----------
@@ -803,7 +806,7 @@ class HeatingDemandVisualizer:
         y_pred_after : array
             Predictions after calibration
         weights : array
-            Sample weights
+            Sample weights (NWEIGHT - survey weights representing population)
         n_bins : int
             Number of bins (deciles)
         title : str
@@ -813,16 +816,15 @@ class HeatingDemandVisualizer:
         -------
         Figure
         """
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
         
         # Compute decile bins based on true values
         decile_edges = np.percentile(y_true, np.linspace(0, 100, n_bins + 1))
-        decile_labels = [f'D{i+1}' for i in range(n_bins)]
         
         # Assign to deciles
         decile_idx = np.digitize(y_true, decile_edges[1:-1])
         
-        # Compute stats per decile
+        # Compute stats per decile with bootstrap CI
         stats_before = []
         stats_after = []
         
@@ -835,19 +837,43 @@ class HeatingDemandVisualizer:
             y = y_true[mask]
             pred_b = y_pred_before[mask]
             pred_a = y_pred_after[mask]
+            n_samples = mask.sum()
             
             # Weighted means
             mean_true = np.average(y, weights=w)
             mean_pred_b = np.average(pred_b, weights=w)
             mean_pred_a = np.average(pred_a, weights=w)
             
-            # Weighted bias
+            # Weighted bias (Ŷ - Y)
             bias_b = np.average(pred_b - y, weights=w)
             bias_a = np.average(pred_a - y, weights=w)
             
-            # Bias as percentage
+            # Bias as percentage of decile mean: 100 × (Ŷ - Y) / Ȳ
             bias_pct_b = bias_b / mean_true * 100 if mean_true > 0 else 0
             bias_pct_a = bias_a / mean_true * 100 if mean_true > 0 else 0
+            
+            # Bootstrap CI for bias percentage
+            n_bootstrap = 200
+            bias_pct_b_boot = []
+            bias_pct_a_boot = []
+            
+            for _ in range(n_bootstrap):
+                boot_idx = np.random.choice(len(y), size=len(y), replace=True)
+                w_boot = w[boot_idx]
+                y_boot = y[boot_idx]
+                pred_b_boot = pred_b[boot_idx]
+                pred_a_boot = pred_a[boot_idx]
+                
+                mean_true_boot = np.average(y_boot, weights=w_boot)
+                if mean_true_boot > 0:
+                    bias_b_boot = np.average(pred_b_boot - y_boot, weights=w_boot)
+                    bias_a_boot = np.average(pred_a_boot - y_boot, weights=w_boot)
+                    bias_pct_b_boot.append(bias_b_boot / mean_true_boot * 100)
+                    bias_pct_a_boot.append(bias_a_boot / mean_true_boot * 100)
+            
+            # 95% CI from bootstrap
+            ci_b = (np.percentile(bias_pct_b_boot, 2.5), np.percentile(bias_pct_b_boot, 97.5))
+            ci_a = (np.percentile(bias_pct_a_boot, 2.5), np.percentile(bias_pct_a_boot, 97.5))
             
             stats_before.append({
                 'decile': d + 1,
@@ -855,7 +881,9 @@ class HeatingDemandVisualizer:
                 'mean_pred': mean_pred_b,
                 'bias': bias_b,
                 'bias_pct': bias_pct_b,
-                'n': mask.sum()
+                'bias_pct_ci': ci_b,
+                'n': n_samples,
+                'weighted_n': w.sum()
             })
             
             stats_after.append({
@@ -864,7 +892,9 @@ class HeatingDemandVisualizer:
                 'mean_pred': mean_pred_a,
                 'bias': bias_a,
                 'bias_pct': bias_pct_a,
-                'n': mask.sum()
+                'bias_pct_ci': ci_a,
+                'n': n_samples,
+                'weighted_n': w.sum()
             })
         
         # Convert to arrays
@@ -874,62 +904,92 @@ class HeatingDemandVisualizer:
         pred_means_a = [s['mean_pred'] for s in stats_after]
         bias_pct_b = [s['bias_pct'] for s in stats_before]
         bias_pct_a = [s['bias_pct'] for s in stats_after]
+        n_per_decile = [s['n'] for s in stats_before]
         
-        # Panel 1: Calibration curves
+        # CI bounds for error bars
+        ci_b_lower = [s['bias_pct'] - s['bias_pct_ci'][0] for s in stats_before]
+        ci_b_upper = [s['bias_pct_ci'][1] - s['bias_pct'] for s in stats_before]
+        ci_a_lower = [s['bias_pct'] - s['bias_pct_ci'][0] for s in stats_after]
+        ci_a_upper = [s['bias_pct_ci'][1] - s['bias_pct'] for s in stats_after]
+        
+        # ===== Panel 1: Calibration curves with markers =====
         ax = axes[0]
-        ax.plot(true_means, pred_means_b, 'o-', color='red', label='Before Calibration', 
-                markersize=8, linewidth=2)
-        ax.plot(true_means, pred_means_a, 's-', color='green', label='After Calibration',
+        # Use different markers and line styles for colorblind accessibility
+        ax.plot(true_means, pred_means_b, 'o--', color='#D62728', label='Before', 
+                markersize=9, linewidth=2, markerfacecolor='white', markeredgewidth=2)
+        ax.plot(true_means, pred_means_a, 's-', color='#2CA02C', label='After',
                 markersize=8, linewidth=2)
         
         # Perfect calibration line
-        max_val = max(max(true_means), max(pred_means_b), max(pred_means_a))
-        ax.plot([0, max_val], [0, max_val], 'k--', label='Perfect (y=x)', alpha=0.5)
+        max_val = max(max(true_means), max(pred_means_b), max(pred_means_a)) * 1.05
+        ax.plot([0, max_val], [0, max_val], 'k:', label='Perfect (y=x)', linewidth=2, alpha=0.7)
         
         ax.set_xlabel('Mean Observed (kBTU)', fontsize=11)
         ax.set_ylabel('Mean Predicted (kBTU)', fontsize=11)
-        ax.set_title('Calibration Curve by Decile', fontsize=12, fontweight='bold')
-        ax.legend(loc='upper left')
+        ax.set_title('(a) Calibration Curve by Decile', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper left', fontsize=9)
         ax.grid(alpha=0.3)
         
-        # Add decile labels
-        for i, (x, yb, ya) in enumerate(zip(true_means, pred_means_b, pred_means_a)):
-            if i == n_bins - 1:  # Only label top decile
-                ax.annotate(f'D{i+1}', (x, ya), textcoords="offset points", 
-                           xytext=(5, 5), fontsize=8)
+        # Add decile labels for first and last
+        ax.annotate(f'D1\n(n={n_per_decile[0]})', (true_means[0], pred_means_a[0]), 
+                   textcoords="offset points", xytext=(-20, 10), fontsize=8,
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+        ax.annotate(f'D10\n(n={n_per_decile[-1]})', (true_means[-1], pred_means_a[-1]), 
+                   textcoords="offset points", xytext=(5, -20), fontsize=8,
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         
-        # Panel 2: Bias by decile
+        # ===== Panel 2: Bias by decile with error bars =====
         ax = axes[1]
         x = np.arange(len(deciles))
         width = 0.35
         
-        bars1 = ax.bar(x - width/2, bias_pct_b, width, label='Before', color='red', alpha=0.7)
-        bars2 = ax.bar(x + width/2, bias_pct_a, width, label='After', color='green', alpha=0.7)
+        # Bars with error bars - different hatching for accessibility
+        bars1 = ax.bar(x - width/2, bias_pct_b, width, label='Before', 
+                      color='#D62728', alpha=0.7, hatch='///', edgecolor='black')
+        bars2 = ax.bar(x + width/2, bias_pct_a, width, label='After', 
+                      color='#2CA02C', alpha=0.7, edgecolor='black')
         
-        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+        # Add error bars (95% CI from bootstrap)
+        ax.errorbar(x - width/2, bias_pct_b, yerr=[ci_b_lower, ci_b_upper], 
+                   fmt='none', color='black', capsize=3, linewidth=1)
+        ax.errorbar(x + width/2, bias_pct_a, yerr=[ci_a_lower, ci_a_upper], 
+                   fmt='none', color='black', capsize=3, linewidth=1)
+        
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
         ax.set_xlabel('Decile of Observed Consumption', fontsize=11)
-        ax.set_ylabel('Bias (%)', fontsize=11)
-        ax.set_title('Bias by Decile: Before vs After', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Bias (%) = 100×(Ŷ−Y)/Ȳ', fontsize=11)
+        ax.set_title('(b) Weighted Bias by Decile (95% CI)', fontsize=12, fontweight='bold')
         ax.set_xticks(x)
-        ax.set_xticklabels([f'D{d}' for d in deciles])
-        ax.legend()
+        ax.set_xticklabels([f'D{d}\n(n={n})' for d, n in zip(deciles, n_per_decile)], fontsize=8)
+        ax.legend(loc='upper right', fontsize=9)
         ax.grid(alpha=0.3, axis='y')
         
-        # Highlight improvement in top decile
-        ax.annotate(f'Top decile:\n{bias_pct_b[-1]:.1f}% → {bias_pct_a[-1]:.1f}%',
-                   xy=(x[-1], bias_pct_a[-1]), xytext=(x[-1]-1.5, bias_pct_a[-1]-15),
-                   fontsize=9, arrowprops=dict(arrowstyle='->', color='gray'),
-                   bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+        # Annotate extreme deciles
+        ax.annotate(f'D1: {bias_pct_b[0]:.0f}%→{bias_pct_a[0]:.0f}%\n(small Y, high ratio)',
+                   xy=(x[0], max(bias_pct_b[0], bias_pct_a[0])), 
+                   xytext=(x[0]+1.5, max(bias_pct_b[0], bias_pct_a[0])*0.7),
+                   fontsize=8, arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
+                   bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
         
-        # Panel 3: Scatter with calibration slopes
+        ax.annotate(f'D10: {bias_pct_b[-1]:.1f}%→{bias_pct_a[-1]:.1f}%',
+                   xy=(x[-1], bias_pct_a[-1]), 
+                   xytext=(x[-1]-2, bias_pct_a[-1]-20),
+                   fontsize=8, arrowprops=dict(arrowstyle='->', color='gray', lw=0.5),
+                   bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.9))
+        
+        # ===== Panel 3: Scatter with calibration slopes =====
         ax = axes[2]
         
         # Subsample for visibility
+        np.random.seed(42)
         n_plot = min(3000, len(y_true))
         idx = np.random.choice(len(y_true), n_plot, replace=False)
         
-        ax.scatter(y_true[idx], y_pred_before[idx], alpha=0.2, s=5, c='red', label='Before')
-        ax.scatter(y_true[idx], y_pred_after[idx], alpha=0.2, s=5, c='green', label='After')
+        # Different markers for accessibility
+        ax.scatter(y_true[idx], y_pred_before[idx], alpha=0.15, s=8, c='#D62728', 
+                  marker='o', label='Before')
+        ax.scatter(y_true[idx], y_pred_after[idx], alpha=0.15, s=8, c='#2CA02C', 
+                  marker='s', label='After')
         
         # Fit calibration lines
         from scipy import stats as scipy_stats
@@ -937,15 +997,15 @@ class HeatingDemandVisualizer:
         slope_a, intercept_a, _, _, _ = scipy_stats.linregress(y_true, y_pred_after)
         
         x_line = np.array([0, y_true.max()])
-        ax.plot(x_line, slope_b * x_line + intercept_b, 'r-', linewidth=2,
-               label=f'Before: slope={slope_b:.3f}')
-        ax.plot(x_line, slope_a * x_line + intercept_a, 'g-', linewidth=2,
-               label=f'After: slope={slope_a:.3f}')
-        ax.plot(x_line, x_line, 'k--', label='Perfect (slope=1)', alpha=0.5)
+        ax.plot(x_line, slope_b * x_line + intercept_b, '--', color='#D62728', linewidth=2.5,
+               label=f'Before: Ŷ={intercept_b/1000:.1f}k+{slope_b:.2f}Y')
+        ax.plot(x_line, slope_a * x_line + intercept_a, '-', color='#2CA02C', linewidth=2.5,
+               label=f'After: Ŷ={intercept_a/1000:.1f}k+{slope_a:.2f}Y')
+        ax.plot(x_line, x_line, 'k:', label='Perfect (slope=1)', linewidth=2, alpha=0.7)
         
         ax.set_xlabel('Observed (kBTU)', fontsize=11)
         ax.set_ylabel('Predicted (kBTU)', fontsize=11)
-        ax.set_title('Calibration Slope Improvement', fontsize=12, fontweight='bold')
+        ax.set_title('(c) Calibration Slope', fontsize=12, fontweight='bold')
         ax.legend(loc='upper left', fontsize=8)
         ax.grid(alpha=0.3)
         
@@ -954,9 +1014,19 @@ class HeatingDemandVisualizer:
         ax.set_xlim(0, max_lim)
         ax.set_ylim(0, max_lim)
         
-        fig.suptitle(f'{title}\n(Weighted metrics, outer-fold predictions)', 
-                    fontsize=13, fontweight='bold')
-        plt.tight_layout()
+        # Add text box explaining slope
+        ax.text(0.98, 0.05, f'Slope improvement:\n{slope_b:.3f} → {slope_a:.3f}\n(target = 1.0)',
+               transform=ax.transAxes, fontsize=9, verticalalignment='bottom',
+               horizontalalignment='right',
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+        
+        # Main title with formula explanation
+        fig.suptitle(f'{title}\n'
+                    f'Bias = 100×(Ŷ−Y)/Ȳ_decile, weighted by NWEIGHT (survey weights)\n'
+                    f'Note: D1 high bias due to small observed values (Ȳ≈{true_means[0]/1000:.1f}k kBTU); '
+                    f'D10 underprediction is the policy-relevant concern', 
+                    fontsize=11, fontweight='bold')
+        plt.tight_layout(rect=[0, 0, 1, 0.90])
         return fig
     
     def plot_ebm_shape_functions(self,

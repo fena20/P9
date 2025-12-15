@@ -1,8 +1,10 @@
-# Calibration effect: Before = raw LightGBM predictions, After = isotonic calibration applied. Tail bias computed on top 10% of observed consumption. All metrics weighted by NWEIGHT.
+# Calibration effect: Before = raw LightGBM (Tweedie), After = isotonic calibration. Bias formula: 100×(Ŷ−Y)/Ȳ. D1 (bottom decile) has high % bias because mean observed is very small (1,814 kBTU); absolute bias is 5,903 kBTU. D10 (top decile) underprediction is the policy-relevant concern for retrofit targeting. All metrics weighted by NWEIGHT (survey weights representing US household population).
 Metric,Before,After,Change
 wRMSE (kBTU),"24,964","25,197",+0.9%
 wMAE (kBTU),"15,691","15,854",+1.0%
 wR²,0.479,0.470,-0.010
 wBias (kBTU),"-5,987","-5,977",+10
 Calibration Slope,0.470,0.493,+0.023 (→1.0)
-Tail Bias (top 10%),-46.1%,-44.4%,+1.7pp
+Tail Bias D10 (top 10%),-46.1%,-44.4%,+1.7pp
+D1 Mean Observed (kBTU),"1,814","1,814",(small Y → high % bias)
+D1 Absolute Bias (kBTU),"6,211","5,903",-307

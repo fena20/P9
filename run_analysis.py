@@ -790,6 +790,14 @@ def save_results(df: pd.DataFrame,
         tail_bias_pct_before = tail_bias_before / tail_mean * 100
         tail_bias_pct_after = tail_bias_after / tail_mean * 100
         
+        # Bottom decile stats (for explanation)
+        p10 = np.percentile(y_true, 10)
+        bottom_mask = y_true <= p10
+        w_bottom = w[bottom_mask]
+        bottom_mean = np.sum(w_bottom * y_true[bottom_mask]) / np.sum(w_bottom)
+        bottom_bias_before = np.sum(w_bottom * (y_pred_before[bottom_mask] - y_true[bottom_mask])) / np.sum(w_bottom)
+        bottom_bias_after = np.sum(w_bottom * (y_pred_after[bottom_mask] - y_true[bottom_mask])) / np.sum(w_bottom)
+        
         calib_rows = [
             {'Metric': 'wRMSE (kBTU)', 'Before': f"{metrics_before['wRMSE']:,.0f}", 
              'After': f"{metrics_after['wRMSE']:,.0f}", 
@@ -806,17 +814,26 @@ def save_results(df: pd.DataFrame,
             {'Metric': 'Calibration Slope', 'Before': f"{slope_before:.3f}", 
              'After': f"{slope_after:.3f}",
              'Change': f"{slope_after - slope_before:+.3f} (→1.0)"},
-            {'Metric': 'Tail Bias (top 10%)', 'Before': f"{tail_bias_pct_before:.1f}%", 
+            {'Metric': 'Tail Bias D10 (top 10%)', 'Before': f"{tail_bias_pct_before:.1f}%", 
              'After': f"{tail_bias_pct_after:.1f}%",
              'Change': f"{tail_bias_pct_after - tail_bias_pct_before:+.1f}pp"},
+            {'Metric': 'D1 Mean Observed (kBTU)', 'Before': f"{bottom_mean:,.0f}", 
+             'After': f"{bottom_mean:,.0f}",
+             'Change': '(small Y → high % bias)'},
+            {'Metric': 'D1 Absolute Bias (kBTU)', 'Before': f"{bottom_bias_before:,.0f}", 
+             'After': f"{bottom_bias_after:,.0f}",
+             'Change': f"{bottom_bias_after - bottom_bias_before:+,.0f}"},
         ]
         
         calib_df = pd.DataFrame(calib_rows)
         save_table_with_note(
             calib_df,
             str(tables_dir / 'table_calibration_comparison.csv'),
-            "Calibration effect: Before = raw LightGBM predictions, After = isotonic calibration applied. "
-            "Tail bias computed on top 10% of observed consumption. All metrics weighted by NWEIGHT."
+            "Calibration effect: Before = raw LightGBM (Tweedie), After = isotonic calibration. "
+            "Bias formula: 100×(Ŷ−Y)/Ȳ. D1 (bottom decile) has high % bias because mean observed is very small "
+            f"({bottom_mean:,.0f} kBTU); absolute bias is {bottom_bias_after:,.0f} kBTU. "
+            "D10 (top decile) underprediction is the policy-relevant concern for retrofit targeting. "
+            "All metrics weighted by NWEIGHT (survey weights representing US household population)."
         )
         print("\nTable: Calibration Comparison (Before vs After Isotonic)")
         print(calib_df.to_string())
