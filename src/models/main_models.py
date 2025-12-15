@@ -615,7 +615,8 @@ class HeatingDemandModels:
         return self
     
     def predict_split(self, X: pd.DataFrame, 
-                      tech_group: pd.Series) -> np.ndarray:
+                      tech_group: pd.Series,
+                      apply_correction: bool = True) -> np.ndarray:
         """
         Predict using technology-specific models.
         
@@ -625,6 +626,8 @@ class HeatingDemandModels:
             Features
         tech_group : Series
             Technology group labels
+        apply_correction : bool
+            Whether to apply calibration correction
             
         Returns
         -------
@@ -642,7 +645,11 @@ class HeatingDemandModels:
                 continue
             
             X_group = X.loc[mask].copy()
-            predictions[mask.values] = model.predict(X_group)
+            # Pass apply_correction if model supports it
+            try:
+                predictions[mask.values] = model.predict(X_group, apply_correction=apply_correction)
+            except TypeError:
+                predictions[mask.values] = model.predict(X_group)
         
         # Handle groups without models
         unhandled_mask = ~np.isin(tech_group.values, list(self.tech_models_.keys()))

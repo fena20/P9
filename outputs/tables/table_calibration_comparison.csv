@@ -1,0 +1,8 @@
+# Calibration effect: Before = raw LightGBM predictions, After = isotonic calibration applied. Tail bias computed on top 10% of observed consumption. All metrics weighted by NWEIGHT.
+Metric,Before,After,Change
+wRMSE (kBTU),"24,964","25,197",+0.9%
+wMAE (kBTU),"15,691","15,854",+1.0%
+wR²,0.479,0.470,-0.010
+wBias (kBTU),"-5,987","-5,977",+10
+Calibration Slope,0.470,0.493,+0.023 (→1.0)
+Tail Bias (top 10%),-46.1%,-44.4%,+1.7pp

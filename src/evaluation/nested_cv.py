@@ -185,6 +185,7 @@ class NestedCrossValidator:
             # Store results
             self.fold_results_ = []
             all_predictions = np.zeros(len(X))
+            all_predictions_uncalib = np.zeros(len(X))  # For calibration comparison
             metrics_calc = WeightedMetrics()
             
             for fold_idx, (train_idx, test_idx) in enumerate(outer_cv.split(X, strat_encoded)):
@@ -231,13 +232,25 @@ class NestedCrossValidator:
                     final_model.fit_split(X_train_proc, pd.Series(y_train), 
                                           tech_train, pd.Series(w_train))
                     predictions = final_model.predict_split(X_test_proc, tech_test)
+                    # For calibration comparison, also get uncalibrated predictions
+                    predictions_uncalib = final_model.predict_split(X_test_proc, tech_test, 
+                                                                     apply_correction=False)
                 else:
                     if hasattr(final_model, 'fit'):
                         final_model.fit(X_train_proc, y_train, sample_weight=w_train)
                     predictions = final_model.predict(X_test_proc)
+                    # Also get uncalibrated predictions if supported
+                    if hasattr(final_model, 'predict'):
+                        try:
+                            predictions_uncalib = final_model.predict(X_test_proc, apply_correction=False)
+                        except TypeError:
+                            predictions_uncalib = predictions  # Model doesn't support this
+                    else:
+                        predictions_uncalib = predictions
                 
                 # Store predictions
                 all_predictions[test_idx] = predictions
+                all_predictions_uncalib[test_idx] = predictions_uncalib
                 
                 # Compute fold metrics
                 fold_metrics = metrics_calc.compute_all_metrics(y_test, predictions, w_test)
@@ -264,6 +277,7 @@ class NestedCrossValidator:
             
             # Compute overall metrics
             self.outer_predictions_ = all_predictions
+            self.outer_predictions_uncalib_ = all_predictions_uncalib  # For calibration comparison
             overall_metrics = metrics_calc.compute_all_metrics(
                 y.values, all_predictions, weights.values
             )

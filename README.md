@@ -64,6 +64,17 @@ A **policy-centric and physics-consistent framework** for modeling annual reside
 | Resistance | 1,376 | 127.0 | 0.563 | +27.0 | -24.8 |
 | Hybrid | 2,186 | 122.5 | 0.475 | +23.9 | -44.0 |
 
+### Calibration Effect (Before vs After Isotonic)
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Calibration Slope | 0.470 | 0.493 | +0.023 (→1.0) |
+| Tail Bias (top 10%) | -46.1% | -44.4% | +1.7pp |
+| wRMSE | 24,964 | 25,197 | +0.9% |
+| wBias | -5,987 | -5,977 | +10 kBTU |
+
+**Interpretation:** Isotonic calibration improves calibration slope and reduces tail bias, with a small trade-off in overall RMSE. The trade-off is acceptable because policy targeting prioritizes correct ranking of high-consumption households.
+
 ---
 
 ## 📁 Project Structure
@@ -224,9 +235,10 @@ CI = θ ± 1.96 × SE(θ)
 | `table1_tech_group_descriptives.csv` | Technology group descriptives (n, shares, means) |
 | `table2_cv_performance.csv` | Cross-validation performance by fold |
 | `table2b_h1_split_vs_mono.csv` | H1 comparison: Split vs Monolithic |
-| `table2c_h1_delta_ci.csv` | **NEW:** Delta metrics with replicate-weight CIs |
+| `table2c_h1_delta_ci.csv` | Delta metrics with replicate-weight CIs |
 | `table3_uncertainty.csv` | Uncertainty estimates for all metrics |
 | `table_physics_diagnostics.csv` | Physics diagnostics by technology |
+| `table_calibration_comparison.csv` | **NEW:** Calibration effect (before vs after isotonic) |
 | `policy_*_summary.csv` | Policy targeting summaries with Jaccard CIs |
 | `policy_*_income.csv` | Composition shifts by income |
 | `equity_by_*.csv` | Error equity analysis by group |
@@ -234,7 +246,7 @@ CI = θ ± 1.96 × SE(θ)
 | `appendix_technical_documentation.md` | Technical appendix |
 | `sensitivity_notes.txt` | Sensitivity analysis documentation |
 
-### Figures (8 files)
+### Figures (9 files)
 
 | Figure | Description |
 |--------|-------------|
@@ -244,6 +256,7 @@ CI = θ ± 1.96 × SE(θ)
 | `fig3_composition_shift.png` | Composition shift (weighted vs unweighted) |
 | `fig4_h1_split_vs_mono.png` | H1: Residual comparison Split vs Mono |
 | `fig5_residual_vs_hdd.png` | Residual bias vs HDD by technology |
+| `fig6_calibration_comparison.png` | **NEW:** Calibration before vs after isotonic |
 | `error_equity.png` | Error equity analysis |
 | `cv_results.png` | Cross-validation results |
 

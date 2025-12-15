@@ -780,6 +780,185 @@ class HeatingDemandVisualizer:
         plt.tight_layout()
         return fig
     
+    def plot_calibration_comparison(self,
+                                    y_true: np.ndarray,
+                                    y_pred_before: np.ndarray,
+                                    y_pred_after: np.ndarray,
+                                    weights: np.ndarray,
+                                    n_bins: int = 10,
+                                    title: str = "Calibration: Before vs After Isotonic") -> plt.Figure:
+        """
+        Plot calibration comparison before and after isotonic calibration.
+        
+        Shows:
+        - Left: Calibration curves (predicted vs observed by decile)
+        - Right: Decile error comparison
+        
+        Parameters
+        ----------
+        y_true : array
+            True values
+        y_pred_before : array
+            Predictions before calibration
+        y_pred_after : array
+            Predictions after calibration
+        weights : array
+            Sample weights
+        n_bins : int
+            Number of bins (deciles)
+        title : str
+            Plot title
+            
+        Returns
+        -------
+        Figure
+        """
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        
+        # Compute decile bins based on true values
+        decile_edges = np.percentile(y_true, np.linspace(0, 100, n_bins + 1))
+        decile_labels = [f'D{i+1}' for i in range(n_bins)]
+        
+        # Assign to deciles
+        decile_idx = np.digitize(y_true, decile_edges[1:-1])
+        
+        # Compute stats per decile
+        stats_before = []
+        stats_after = []
+        
+        for d in range(n_bins):
+            mask = decile_idx == d
+            if mask.sum() == 0:
+                continue
+                
+            w = weights[mask]
+            y = y_true[mask]
+            pred_b = y_pred_before[mask]
+            pred_a = y_pred_after[mask]
+            
+            # Weighted means
+            mean_true = np.average(y, weights=w)
+            mean_pred_b = np.average(pred_b, weights=w)
+            mean_pred_a = np.average(pred_a, weights=w)
+            
+            # Weighted bias
+            bias_b = np.average(pred_b - y, weights=w)
+            bias_a = np.average(pred_a - y, weights=w)
+            
+            # Bias as percentage
+            bias_pct_b = bias_b / mean_true * 100 if mean_true > 0 else 0
+            bias_pct_a = bias_a / mean_true * 100 if mean_true > 0 else 0
+            
+            stats_before.append({
+                'decile': d + 1,
+                'mean_true': mean_true,
+                'mean_pred': mean_pred_b,
+                'bias': bias_b,
+                'bias_pct': bias_pct_b,
+                'n': mask.sum()
+            })
+            
+            stats_after.append({
+                'decile': d + 1,
+                'mean_true': mean_true,
+                'mean_pred': mean_pred_a,
+                'bias': bias_a,
+                'bias_pct': bias_pct_a,
+                'n': mask.sum()
+            })
+        
+        # Convert to arrays
+        deciles = [s['decile'] for s in stats_before]
+        true_means = [s['mean_true'] for s in stats_before]
+        pred_means_b = [s['mean_pred'] for s in stats_before]
+        pred_means_a = [s['mean_pred'] for s in stats_after]
+        bias_pct_b = [s['bias_pct'] for s in stats_before]
+        bias_pct_a = [s['bias_pct'] for s in stats_after]
+        
+        # Panel 1: Calibration curves
+        ax = axes[0]
+        ax.plot(true_means, pred_means_b, 'o-', color='red', label='Before Calibration', 
+                markersize=8, linewidth=2)
+        ax.plot(true_means, pred_means_a, 's-', color='green', label='After Calibration',
+                markersize=8, linewidth=2)
+        
+        # Perfect calibration line
+        max_val = max(max(true_means), max(pred_means_b), max(pred_means_a))
+        ax.plot([0, max_val], [0, max_val], 'k--', label='Perfect (y=x)', alpha=0.5)
+        
+        ax.set_xlabel('Mean Observed (kBTU)', fontsize=11)
+        ax.set_ylabel('Mean Predicted (kBTU)', fontsize=11)
+        ax.set_title('Calibration Curve by Decile', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper left')
+        ax.grid(alpha=0.3)
+        
+        # Add decile labels
+        for i, (x, yb, ya) in enumerate(zip(true_means, pred_means_b, pred_means_a)):
+            if i == n_bins - 1:  # Only label top decile
+                ax.annotate(f'D{i+1}', (x, ya), textcoords="offset points", 
+                           xytext=(5, 5), fontsize=8)
+        
+        # Panel 2: Bias by decile
+        ax = axes[1]
+        x = np.arange(len(deciles))
+        width = 0.35
+        
+        bars1 = ax.bar(x - width/2, bias_pct_b, width, label='Before', color='red', alpha=0.7)
+        bars2 = ax.bar(x + width/2, bias_pct_a, width, label='After', color='green', alpha=0.7)
+        
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+        ax.set_xlabel('Decile of Observed Consumption', fontsize=11)
+        ax.set_ylabel('Bias (%)', fontsize=11)
+        ax.set_title('Bias by Decile: Before vs After', fontsize=12, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'D{d}' for d in deciles])
+        ax.legend()
+        ax.grid(alpha=0.3, axis='y')
+        
+        # Highlight improvement in top decile
+        ax.annotate(f'Top decile:\n{bias_pct_b[-1]:.1f}% → {bias_pct_a[-1]:.1f}%',
+                   xy=(x[-1], bias_pct_a[-1]), xytext=(x[-1]-1.5, bias_pct_a[-1]-15),
+                   fontsize=9, arrowprops=dict(arrowstyle='->', color='gray'),
+                   bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+        
+        # Panel 3: Scatter with calibration slopes
+        ax = axes[2]
+        
+        # Subsample for visibility
+        n_plot = min(3000, len(y_true))
+        idx = np.random.choice(len(y_true), n_plot, replace=False)
+        
+        ax.scatter(y_true[idx], y_pred_before[idx], alpha=0.2, s=5, c='red', label='Before')
+        ax.scatter(y_true[idx], y_pred_after[idx], alpha=0.2, s=5, c='green', label='After')
+        
+        # Fit calibration lines
+        from scipy import stats as scipy_stats
+        slope_b, intercept_b, _, _, _ = scipy_stats.linregress(y_true, y_pred_before)
+        slope_a, intercept_a, _, _, _ = scipy_stats.linregress(y_true, y_pred_after)
+        
+        x_line = np.array([0, y_true.max()])
+        ax.plot(x_line, slope_b * x_line + intercept_b, 'r-', linewidth=2,
+               label=f'Before: slope={slope_b:.3f}')
+        ax.plot(x_line, slope_a * x_line + intercept_a, 'g-', linewidth=2,
+               label=f'After: slope={slope_a:.3f}')
+        ax.plot(x_line, x_line, 'k--', label='Perfect (slope=1)', alpha=0.5)
+        
+        ax.set_xlabel('Observed (kBTU)', fontsize=11)
+        ax.set_ylabel('Predicted (kBTU)', fontsize=11)
+        ax.set_title('Calibration Slope Improvement', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper left', fontsize=8)
+        ax.grid(alpha=0.3)
+        
+        # Set equal limits
+        max_lim = max(y_true.max(), y_pred_before.max(), y_pred_after.max()) * 1.05
+        ax.set_xlim(0, max_lim)
+        ax.set_ylim(0, max_lim)
+        
+        fig.suptitle(f'{title}\n(Weighted metrics, outer-fold predictions)', 
+                    fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        return fig
+    
     def plot_ebm_shape_functions(self,
                                   ebm_model,
                                   features_to_plot: List[str] = None,

@@ -302,6 +302,7 @@ def run_nested_cv(df: pd.DataFrame,
     return {
         'cv_result': cv_result,
         'predictions': cv.outer_predictions_,
+        'predictions_uncalibrated': cv.outer_predictions_uncalib_,  # For calibration comparison
         'fold_results': cv.fold_results_,
         'h1_comparison': h1_comparison,
         'mono_predictions': mono_cv.outer_predictions_
@@ -588,6 +589,18 @@ def create_visualizations(df: pd.DataFrame,
         )
         viz.save_figure(fig, 'error_equity.png', str(figures_dir))
     
+    # NEW: Calibration comparison figure (before vs after isotonic)
+    if cv_results and 'predictions_uncalibrated' in cv_results:
+        fig = viz.plot_calibration_comparison(
+            y_true=df['TOTALBTUSPH'].values,
+            y_pred_before=cv_results['predictions_uncalibrated'],
+            y_pred_after=predictions,
+            weights=df['NWEIGHT'].values,
+            n_bins=10,
+            title="Calibration Effect: Before vs After Isotonic"
+        )
+        viz.save_figure(fig, 'fig6_calibration_comparison.png', str(figures_dir))
+    
     logger.info(f"Saved all figures to {figures_dir}")
 
 
@@ -735,6 +748,78 @@ def save_results(df: pd.DataFrame,
             str(tables_dir / 'table3_uncertainty.csv'),
             note
         )
+    
+    # Calibration comparison table (before vs after isotonic)
+    if cv_results and 'predictions_uncalibrated' in cv_results:
+        from src.evaluation.metrics import WeightedMetrics
+        from scipy import stats as scipy_stats
+        
+        y_true = df['TOTALBTUSPH'].values
+        y_pred_before = cv_results['predictions_uncalibrated']
+        y_pred_after = cv_results['predictions']
+        w = df['NWEIGHT'].values
+        
+        metrics = WeightedMetrics()
+        
+        # Compute metrics before and after
+        metrics_before = {
+            'wRMSE': metrics.weighted_rmse(y_true, y_pred_before, w),
+            'wMAE': metrics.weighted_mae(y_true, y_pred_before, w),
+            'wR²': metrics.weighted_r2(y_true, y_pred_before, w),
+            'wBias': metrics.weighted_bias(y_true, y_pred_before, w),
+        }
+        
+        metrics_after = {
+            'wRMSE': metrics.weighted_rmse(y_true, y_pred_after, w),
+            'wMAE': metrics.weighted_mae(y_true, y_pred_after, w),
+            'wR²': metrics.weighted_r2(y_true, y_pred_after, w),
+            'wBias': metrics.weighted_bias(y_true, y_pred_after, w),
+        }
+        
+        # Calibration slopes
+        slope_before, intercept_before, _, _, _ = scipy_stats.linregress(y_true, y_pred_before)
+        slope_after, intercept_after, _, _, _ = scipy_stats.linregress(y_true, y_pred_after)
+        
+        # Compute tail bias (top 10%)
+        p90 = np.percentile(y_true, 90)
+        tail_mask = y_true >= p90
+        w_tail = w[tail_mask]
+        tail_bias_before = np.sum(w_tail * (y_pred_before[tail_mask] - y_true[tail_mask])) / np.sum(w_tail)
+        tail_bias_after = np.sum(w_tail * (y_pred_after[tail_mask] - y_true[tail_mask])) / np.sum(w_tail)
+        tail_mean = np.sum(w_tail * y_true[tail_mask]) / np.sum(w_tail)
+        tail_bias_pct_before = tail_bias_before / tail_mean * 100
+        tail_bias_pct_after = tail_bias_after / tail_mean * 100
+        
+        calib_rows = [
+            {'Metric': 'wRMSE (kBTU)', 'Before': f"{metrics_before['wRMSE']:,.0f}", 
+             'After': f"{metrics_after['wRMSE']:,.0f}", 
+             'Change': f"{(metrics_after['wRMSE'] - metrics_before['wRMSE']) / metrics_before['wRMSE'] * 100:+.1f}%"},
+            {'Metric': 'wMAE (kBTU)', 'Before': f"{metrics_before['wMAE']:,.0f}", 
+             'After': f"{metrics_after['wMAE']:,.0f}",
+             'Change': f"{(metrics_after['wMAE'] - metrics_before['wMAE']) / metrics_before['wMAE'] * 100:+.1f}%"},
+            {'Metric': 'wR²', 'Before': f"{metrics_before['wR²']:.3f}", 
+             'After': f"{metrics_after['wR²']:.3f}",
+             'Change': f"{metrics_after['wR²'] - metrics_before['wR²']:+.3f}"},
+            {'Metric': 'wBias (kBTU)', 'Before': f"{metrics_before['wBias']:,.0f}", 
+             'After': f"{metrics_after['wBias']:,.0f}",
+             'Change': f"{(metrics_after['wBias'] - metrics_before['wBias']):+,.0f}"},
+            {'Metric': 'Calibration Slope', 'Before': f"{slope_before:.3f}", 
+             'After': f"{slope_after:.3f}",
+             'Change': f"{slope_after - slope_before:+.3f} (→1.0)"},
+            {'Metric': 'Tail Bias (top 10%)', 'Before': f"{tail_bias_pct_before:.1f}%", 
+             'After': f"{tail_bias_pct_after:.1f}%",
+             'Change': f"{tail_bias_pct_after - tail_bias_pct_before:+.1f}pp"},
+        ]
+        
+        calib_df = pd.DataFrame(calib_rows)
+        save_table_with_note(
+            calib_df,
+            str(tables_dir / 'table_calibration_comparison.csv'),
+            "Calibration effect: Before = raw LightGBM predictions, After = isotonic calibration applied. "
+            "Tail bias computed on top 10% of observed consumption. All metrics weighted by NWEIGHT."
+        )
+        print("\nTable: Calibration Comparison (Before vs After Isotonic)")
+        print(calib_df.to_string())
     
     # Policy targeting tables with uncertainty
     if policy_results and 'weighted_vs_unweighted' in policy_results:
