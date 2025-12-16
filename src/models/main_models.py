@@ -8,6 +8,15 @@ Implements Section 6.2: Main models
 Section 6.3: Output non-negativity
 - Gamma/Tweedie objective for non-negative predictions
 - Post-processing clamp at 0 with reporting
+
+CALIBRATION METHODOLOGY (leakage-free):
+----------------------------------------
+The isotonic calibration is fitted INSIDE each outer fold of nested CV:
+1. For each outer fold, split data into train/test
+2. Fit LightGBM on training data
+3. Fit isotonic calibrator on TRAINING predictions vs training targets
+4. Apply calibrator when predicting on TEST data
+This ensures calibration does not leak test information.
 """
 
 import numpy as np

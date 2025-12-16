@@ -5,6 +5,12 @@ Implements Section 8 Policy Metrics and H2 testing:
 - Define candidates using weighted 90th percentile of policy score
 - Compare weighted vs unweighted candidate lists
 - Jaccard index, overlap rate, composition shifts
+
+POLICY-ORIENTED METRICS (D):
+- Precision@k: Of top-k by prediction, fraction truly high consumers
+- Recall@k: Of true high consumers, fraction captured in top-k predictions
+- Overlap@k: Overlap between predicted top-k and true top-k
+- Lift@k: Precision@k / base rate (how much better than random)
 """
 
 import numpy as np
@@ -694,3 +700,288 @@ def create_targeting_summary_table(analysis_results: Dict[str, Any],
     )
     
     return result_df
+
+
+class PolicyMetricsEvaluator:
+    """
+    Policy-oriented evaluation metrics using TRUE consumption values.
+    
+    These metrics evaluate how well the model identifies ACTUAL high consumers,
+    not just agreement between weighted/unweighted lists.
+    
+    Key metrics:
+    - Precision@k: Of top-k by prediction, what fraction are truly high consumers?
+    - Recall@k: Of true high consumers, what fraction are in top-k predictions?
+    - Overlap@k: Jaccard between predicted top-k and true top-k
+    - Lift@k: How much better than random selection?
+    - Cost of underprediction: Asymmetric loss on top decile
+    """
+    
+    def __init__(self, k_percentile: float = 10):
+        """
+        Initialize evaluator.
+        
+        Parameters
+        ----------
+        k_percentile : float
+            Top percentage to target (default 10 = top 10%)
+        """
+        self.k_percentile = k_percentile
+        self.k_quantile = 1 - k_percentile / 100  # 0.9 for top 10%
+    
+    def compute_all_metrics(self,
+                            y_true: np.ndarray,
+                            y_pred: np.ndarray,
+                            weights: np.ndarray) -> Dict[str, float]:
+        """
+        Compute all policy-oriented metrics.
+        
+        Parameters
+        ----------
+        y_true : array
+            True consumption values
+        y_pred : array
+            Predicted values
+        weights : array
+            Sample weights (NWEIGHT)
+            
+        Returns
+        -------
+        dict
+            Dictionary of policy metrics
+        """
+        results = {}
+        
+        # Use weighted quantiles to define "true high consumers"
+        true_threshold = compute_weighted_quantile(y_true, weights, self.k_quantile)
+        pred_threshold = compute_weighted_quantile(y_pred, weights, self.k_quantile)
+        
+        # Define sets
+        true_high = y_true >= true_threshold
+        pred_high = y_pred >= pred_threshold
+        
+        # Basic counts
+        n_true_high = np.sum(weights[true_high])  # Weighted count
+        n_pred_high = np.sum(weights[pred_high])
+        n_both = np.sum(weights[true_high & pred_high])
+        
+        # Precision@k: Of predicted high, what fraction are truly high?
+        precision = n_both / n_pred_high if n_pred_high > 0 else 0
+        
+        # Recall@k: Of truly high, what fraction were predicted high?
+        recall = n_both / n_true_high if n_true_high > 0 else 0
+        
+        # F1@k: Harmonic mean
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+        
+        # Overlap@k (Jaccard between predicted and true top-k)
+        union = np.sum(weights[true_high | pred_high])
+        jaccard = n_both / union if union > 0 else 0
+        
+        # Lift@k: How much better than random?
+        # Random baseline: k% of predictions would hit k% × k% = (k%)² of true high
+        base_rate = self.k_percentile / 100
+        lift = precision / base_rate if base_rate > 0 else 0
+        
+        # Mean Rank of true high consumers in predictions (lower is better)
+        pred_ranks = np.argsort(np.argsort(-y_pred))  # Rank 0 = highest prediction
+        mean_rank_true_high = np.average(pred_ranks[true_high], weights=weights[true_high])
+        
+        # Normalized Discounted Cumulative Gain (NDCG) for ranking quality
+        ndcg = self._compute_ndcg(y_true, y_pred, weights)
+        
+        # Cost of underprediction in top decile
+        top_decile_mask = y_true >= true_threshold
+        if np.any(top_decile_mask):
+            residuals_top = y_pred[top_decile_mask] - y_true[top_decile_mask]
+            weights_top = weights[top_decile_mask]
+            
+            # Weighted mean underprediction (negative = underprediction)
+            underpred = np.sum(weights_top * residuals_top) / np.sum(weights_top)
+            underpred_pct = underpred / np.average(y_true[top_decile_mask], weights=weights_top) * 100
+            
+            # Asymmetric loss: penalize underprediction 2x vs overprediction
+            asymmetric_loss = np.sum(weights_top * np.where(
+                residuals_top < 0, 
+                2 * residuals_top**2,  # 2x penalty for under
+                residuals_top**2       # 1x for over
+            )) / np.sum(weights_top)
+        else:
+            underpred = 0
+            underpred_pct = 0
+            asymmetric_loss = 0
+        
+        results = {
+            'precision_at_k': precision,
+            'recall_at_k': recall,
+            'f1_at_k': f1,
+            'jaccard_at_k': jaccard,
+            'lift_at_k': lift,
+            'mean_rank_true_high': mean_rank_true_high,
+            'ndcg': ndcg,
+            'top_decile_underpred': underpred,
+            'top_decile_underpred_pct': underpred_pct,
+            'asymmetric_loss': asymmetric_loss,
+            'true_threshold': true_threshold,
+            'pred_threshold': pred_threshold,
+            'k_percentile': self.k_percentile
+        }
+        
+        return results
+    
+    def _compute_ndcg(self, y_true: np.ndarray, y_pred: np.ndarray, 
+                      weights: np.ndarray, k: int = None) -> float:
+        """
+        Compute Normalized Discounted Cumulative Gain.
+        
+        Measures ranking quality: do high true values rank high in predictions?
+        
+        Parameters
+        ----------
+        y_true : array
+            True values (relevance scores)
+        y_pred : array
+            Predicted values (used for ranking)
+        weights : array
+            Sample weights
+        k : int, optional
+            Only consider top-k positions (default: all)
+            
+        Returns
+        -------
+        float
+            NDCG score between 0 and 1
+        """
+        n = len(y_true)
+        k = k or int(n * self.k_percentile / 100)
+        
+        # Rank by predictions (descending)
+        pred_order = np.argsort(-y_pred)[:k]
+        
+        # Ideal ranking (by true values)
+        ideal_order = np.argsort(-y_true)[:k]
+        
+        # DCG: sum of relevance / log2(rank + 2)
+        dcg = 0
+        for i, idx in enumerate(pred_order):
+            rel = y_true[idx] * weights[idx]  # Weighted relevance
+            dcg += rel / np.log2(i + 2)
+        
+        # Ideal DCG
+        idcg = 0
+        for i, idx in enumerate(ideal_order):
+            rel = y_true[idx] * weights[idx]
+            idcg += rel / np.log2(i + 2)
+        
+        return dcg / idcg if idcg > 0 else 0
+    
+    def compute_with_ci(self,
+                        y_true: np.ndarray,
+                        y_pred: np.ndarray,
+                        weights: np.ndarray,
+                        replicate_weights: np.ndarray,
+                        alpha: float = 0.05) -> Dict[str, Dict[str, float]]:
+        """
+        Compute policy metrics with confidence intervals using replicate weights.
+        
+        Parameters
+        ----------
+        y_true : array
+            True consumption values
+        y_pred : array
+            Predicted values
+        weights : array
+            Primary sample weights (NWEIGHT)
+        replicate_weights : array
+            Replicate weights (n_samples × n_replicates)
+        alpha : float
+            Significance level for CI (default 0.05 for 95% CI)
+            
+        Returns
+        -------
+        dict
+            Dictionary of {metric: {'estimate': x, 'se': x, 'ci_lower': x, 'ci_upper': x}}
+        """
+        # Main estimate
+        main = self.compute_all_metrics(y_true, y_pred, weights)
+        
+        # Replicate estimates
+        n_reps = replicate_weights.shape[1]
+        rep_results = {k: [] for k in main.keys()}
+        
+        for r in range(n_reps):
+            rep_metrics = self.compute_all_metrics(y_true, y_pred, replicate_weights[:, r])
+            for k, v in rep_metrics.items():
+                rep_results[k].append(v)
+        
+        # Compute SE and CI using jackknife formula
+        results = {}
+        z = 1.96 if alpha == 0.05 else 2.576  # 95% or 99% CI
+        
+        for metric, main_val in main.items():
+            reps = np.array(rep_results[metric])
+            # Jackknife variance: ((n-1)/n) * sum((rep - main)^2)
+            variance = ((n_reps - 1) / n_reps) * np.sum((reps - main_val)**2)
+            se = np.sqrt(variance)
+            
+            results[metric] = {
+                'estimate': main_val,
+                'se': se,
+                'ci_lower': main_val - z * se,
+                'ci_upper': main_val + z * se
+            }
+        
+        return results
+    
+    def create_summary_table(self, metrics: Dict[str, Dict[str, float]]) -> pd.DataFrame:
+        """
+        Create summary table of policy metrics.
+        
+        Parameters
+        ----------
+        metrics : dict
+            Output from compute_with_ci
+            
+        Returns
+        -------
+        DataFrame
+            Formatted summary table
+        """
+        rows = []
+        
+        key_metrics = [
+            ('precision_at_k', 'Precision@k', 'Of predicted top-k%, fraction truly high'),
+            ('recall_at_k', 'Recall@k', 'Of truly high, fraction in top-k predictions'),
+            ('f1_at_k', 'F1@k', 'Harmonic mean of Precision and Recall'),
+            ('jaccard_at_k', 'Jaccard@k', 'Overlap between predicted and true top-k'),
+            ('lift_at_k', 'Lift@k', 'Improvement over random (Precision / base rate)'),
+            ('ndcg', 'NDCG', 'Ranking quality (1.0 = perfect ranking)'),
+            ('top_decile_underpred_pct', 'Top-10% Bias (%)', 'Underprediction in top decile'),
+            ('asymmetric_loss', 'Asymmetric Loss', 'Under-prediction penalized 2× over-prediction'),
+        ]
+        
+        for key, name, desc in key_metrics:
+            if key in metrics:
+                m = metrics[key]
+                if key in ['precision_at_k', 'recall_at_k', 'f1_at_k', 'jaccard_at_k', 'ndcg']:
+                    val_str = f"{m['estimate']:.3f} [{m['ci_lower']:.3f}, {m['ci_upper']:.3f}]"
+                elif key == 'lift_at_k':
+                    val_str = f"{m['estimate']:.2f}× [{m['ci_lower']:.2f}, {m['ci_upper']:.2f}]"
+                elif key == 'top_decile_underpred_pct':
+                    val_str = f"{m['estimate']:+.1f}% [{m['ci_lower']:+.1f}, {m['ci_upper']:+.1f}]"
+                else:
+                    val_str = f"{m['estimate']:,.0f} [{m['ci_lower']:,.0f}, {m['ci_upper']:,.0f}]"
+                
+                rows.append({
+                    'Metric': name,
+                    'Value (95% CI)': val_str,
+                    'Description': desc
+                })
+        
+        df = pd.DataFrame(rows)
+        k = metrics.get('k_percentile', {}).get('estimate', 10)
+        df.attrs['note'] = (
+            f"Policy metrics for top-{k:.0f}% targeting. 'True high' defined by weighted "
+            f"90th percentile of observed consumption. CIs from replicate-weight jackknife."
+        )
+        return df

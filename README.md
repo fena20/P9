@@ -25,7 +25,8 @@ A **policy-centric and physics-consistent framework** for modeling annual reside
 2. **Nested CV (5×3)** with stratification by Division × Technology × HDD to eliminate tuning leakage
 3. **Survey weighting impact analysis** on retrofit targeting with Jaccard CIs via replicate-weight jackknife
 4. **Equity audit** showing systematic underprediction in cold climates and single-family homes
-5. **Isotonic post-calibration** to reduce tail underprediction
+5. **Isotonic post-calibration** fitted inside CV (leakage-free) to reduce tail underprediction
+6. **Policy-oriented metrics**: Precision@k, Recall@k, Lift@k based on TRUE consumption
 
 ---
 
@@ -79,6 +80,21 @@ A **policy-centric and physics-consistent framework** for modeling annual reside
 - **Trade-off:** Small increase in overall RMSE is acceptable because policy targeting prioritizes correct ranking of high-consumption households.
 
 **Bias formula:** `100×(Ŷ−Y)/Ȳ_decile`, weighted by NWEIGHT (survey weights representing US household population).
+
+### Policy Metrics (Based on TRUE Consumption)
+
+| Metric | Value | 95% CI | Description |
+|--------|-------|--------|-------------|
+| Precision@10% | 0.457 | [0.434, 0.480] | Of predicted top-10%, fraction truly high |
+| Recall@10% | 0.464 | [0.422, 0.505] | Of true top-10%, fraction in predicted top-10% |
+| F1@10% | 0.460 | [0.431, 0.490] | Harmonic mean of Precision and Recall |
+| Lift@10% | 4.6× | [4.3, 4.8] | Improvement over random selection |
+| NDCG | 0.646 | [0.606, 0.685] | Ranking quality (1.0 = perfect) |
+
+**Interpretation:**
+- **Lift = 4.6×**: The model is 4.6 times better than random selection at identifying true high consumers
+- **~46% of predicted high-use households are actually high consumers** (Precision)
+- **~46% of actual high consumers are captured** in the predicted top-10% (Recall)
 
 ---
 

@@ -388,6 +388,54 @@ def run_policy_analysis(df: pd.DataFrame,
             print(f"  --- Equal Budget (N={results['n_budget']}) ---")
             print(f"  Jaccard (Equal Budget): {eb['jaccard_index']:.3f}")
     
+    # Compute policy-oriented metrics (Precision/Recall@k based on TRUE consumption)
+    print("\n" + "="*60)
+    print("POLICY METRICS (based on TRUE consumption)")
+    print("="*60)
+    
+    from src.policy.targeting import PolicyMetricsEvaluator
+    
+    policy_eval = PolicyMetricsEvaluator(k_percentile=10)
+    
+    # Compute with CIs if replicate weights available
+    if available_rep_cols:
+        policy_metrics = policy_eval.compute_with_ci(
+            y_true=df['TOTALBTUSPH'].values,
+            y_pred=predictions,
+            weights=df['NWEIGHT'].values,
+            replicate_weights=replicate_weights.values
+        )
+        
+        print("\nMetric                  Value (95% CI)")
+        print("-" * 50)
+        print(f"Precision@10%:          {policy_metrics['precision_at_k']['estimate']:.3f} "
+              f"[{policy_metrics['precision_at_k']['ci_lower']:.3f}, {policy_metrics['precision_at_k']['ci_upper']:.3f}]")
+        print(f"Recall@10%:             {policy_metrics['recall_at_k']['estimate']:.3f} "
+              f"[{policy_metrics['recall_at_k']['ci_lower']:.3f}, {policy_metrics['recall_at_k']['ci_upper']:.3f}]")
+        print(f"F1@10%:                 {policy_metrics['f1_at_k']['estimate']:.3f} "
+              f"[{policy_metrics['f1_at_k']['ci_lower']:.3f}, {policy_metrics['f1_at_k']['ci_upper']:.3f}]")
+        print(f"Jaccard@10%:            {policy_metrics['jaccard_at_k']['estimate']:.3f} "
+              f"[{policy_metrics['jaccard_at_k']['ci_lower']:.3f}, {policy_metrics['jaccard_at_k']['ci_upper']:.3f}]")
+        print(f"Lift@10%:               {policy_metrics['lift_at_k']['estimate']:.1f}× "
+              f"[{policy_metrics['lift_at_k']['ci_lower']:.1f}, {policy_metrics['lift_at_k']['ci_upper']:.1f}]")
+        print(f"NDCG:                   {policy_metrics['ndcg']['estimate']:.3f} "
+              f"[{policy_metrics['ndcg']['ci_lower']:.3f}, {policy_metrics['ndcg']['ci_upper']:.3f}]")
+        print(f"Top-10% Underpred:      {policy_metrics['top_decile_underpred_pct']['estimate']:+.1f}% "
+              f"[{policy_metrics['top_decile_underpred_pct']['ci_lower']:+.1f}, "
+              f"{policy_metrics['top_decile_underpred_pct']['ci_upper']:+.1f}]")
+        
+        policy_results['policy_metrics'] = policy_metrics
+    else:
+        policy_metrics = policy_eval.compute_all_metrics(
+            y_true=df['TOTALBTUSPH'].values,
+            y_pred=predictions,
+            weights=df['NWEIGHT'].values
+        )
+        print(f"\nPrecision@10%: {policy_metrics['precision_at_k']:.3f}")
+        print(f"Recall@10%:    {policy_metrics['recall_at_k']:.3f}")
+        print(f"Lift@10%:      {policy_metrics['lift_at_k']:.1f}×")
+        policy_results['policy_metrics'] = policy_metrics
+    
     return policy_results
 
 
@@ -894,6 +942,69 @@ def save_results(df: pd.DataFrame,
                                 f"Composition shift for {score_name} targeting by {group_name}. "
                                 "Representation Ratio = Share among candidates / Population share."
                             )
+    
+    # Policy metrics table (Precision/Recall@k based on TRUE consumption)
+    if policy_results and 'policy_metrics' in policy_results:
+        from src.policy.targeting import PolicyMetricsEvaluator
+        
+        pm = policy_results['policy_metrics']
+        
+        # Check if we have CIs (dict of dicts) or just values
+        if isinstance(pm.get('precision_at_k'), dict):
+            # We have CIs
+            policy_rows = [
+                {'Metric': 'Precision@10%', 
+                 'Value': f"{pm['precision_at_k']['estimate']:.3f}",
+                 '95% CI': f"[{pm['precision_at_k']['ci_lower']:.3f}, {pm['precision_at_k']['ci_upper']:.3f}]",
+                 'Description': 'Of predicted top-10%, fraction truly high consumers'},
+                {'Metric': 'Recall@10%', 
+                 'Value': f"{pm['recall_at_k']['estimate']:.3f}",
+                 '95% CI': f"[{pm['recall_at_k']['ci_lower']:.3f}, {pm['recall_at_k']['ci_upper']:.3f}]",
+                 'Description': 'Of true top-10%, fraction in predicted top-10%'},
+                {'Metric': 'F1@10%', 
+                 'Value': f"{pm['f1_at_k']['estimate']:.3f}",
+                 '95% CI': f"[{pm['f1_at_k']['ci_lower']:.3f}, {pm['f1_at_k']['ci_upper']:.3f}]",
+                 'Description': 'Harmonic mean of Precision and Recall'},
+                {'Metric': 'Jaccard@10%', 
+                 'Value': f"{pm['jaccard_at_k']['estimate']:.3f}",
+                 '95% CI': f"[{pm['jaccard_at_k']['ci_lower']:.3f}, {pm['jaccard_at_k']['ci_upper']:.3f}]",
+                 'Description': 'Overlap between predicted and true top-10%'},
+                {'Metric': 'Lift@10%', 
+                 'Value': f"{pm['lift_at_k']['estimate']:.1f}×",
+                 '95% CI': f"[{pm['lift_at_k']['ci_lower']:.1f}, {pm['lift_at_k']['ci_upper']:.1f}]",
+                 'Description': 'Improvement over random selection'},
+                {'Metric': 'NDCG', 
+                 'Value': f"{pm['ndcg']['estimate']:.3f}",
+                 '95% CI': f"[{pm['ndcg']['ci_lower']:.3f}, {pm['ndcg']['ci_upper']:.3f}]",
+                 'Description': 'Ranking quality (1.0 = perfect)'},
+                {'Metric': 'Top-10% Underprediction', 
+                 'Value': f"{pm['top_decile_underpred_pct']['estimate']:+.1f}%",
+                 '95% CI': f"[{pm['top_decile_underpred_pct']['ci_lower']:+.1f}, {pm['top_decile_underpred_pct']['ci_upper']:+.1f}]",
+                 'Description': 'Bias in top decile (negative = underprediction)'},
+            ]
+        else:
+            # No CIs, just values
+            policy_rows = [
+                {'Metric': 'Precision@10%', 'Value': f"{pm['precision_at_k']:.3f}", '95% CI': 'N/A',
+                 'Description': 'Of predicted top-10%, fraction truly high consumers'},
+                {'Metric': 'Recall@10%', 'Value': f"{pm['recall_at_k']:.3f}", '95% CI': 'N/A',
+                 'Description': 'Of true top-10%, fraction in predicted top-10%'},
+                {'Metric': 'Lift@10%', 'Value': f"{pm['lift_at_k']:.1f}×", '95% CI': 'N/A',
+                 'Description': 'Improvement over random selection'},
+            ]
+        
+        policy_metrics_df = pd.DataFrame(policy_rows)
+        save_table_with_note(
+            policy_metrics_df,
+            str(tables_dir / 'table_policy_metrics.csv'),
+            "Policy metrics for top-10% targeting. 'True high' = weighted 90th percentile of observed consumption. "
+            "Precision@k: fraction of predicted high that are truly high. "
+            "Recall@k: fraction of truly high captured. "
+            "Lift@k: improvement over random (Precision / base rate). "
+            "95% CIs from replicate-weight jackknife (n=60)."
+        )
+        print("\nTable: Policy Metrics (Based on TRUE Consumption)")
+        print(policy_metrics_df.to_string())
     
     # Equity tables with normalized metrics
     if diagnostic_results and 'equity' in diagnostic_results:
