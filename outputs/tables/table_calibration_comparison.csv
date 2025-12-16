@@ -1,0 +1,10 @@
+# Calibration effect: Before = raw LightGBM (Tweedie), After = isotonic calibration. Bias (%) = 100×(Ŷ−Y)/Ȳ_decile where Ȳ_decile is weighted mean observed in each decile. D1 (bottom decile) has high % bias because Ȳ≈1,814 kBTU is small; absolute bias is only 5,903 kBTU. D10 (top decile) underprediction is the policy-relevant concern. Calibration slope via weighted OLS (NWEIGHT). 95% CI in figure: B=500 household-level bootstrap (RECS: 1 observation = 1 household), resampling with replacement, weighted statistics in each replicate.
+Metric,Before,After,Change
+wRMSE (kBTU),"24,964","25,197",+0.9%
+wMAE (kBTU),"15,691","15,854",+1.0%
+wR²,0.479,0.470,-0.010
+wBias (kBTU),"-5,987","-5,977",+10
+Calibration Slope,0.470,0.493,+0.023 (→1.0)
+Tail Bias D10 (top 10%),-46.1%,-44.4%,+1.7pp
+D1 Mean Observed (kBTU),"1,814","1,814",(small Y → high % bias)
+D1 Absolute Bias (kBTU),"6,211","5,903",-307

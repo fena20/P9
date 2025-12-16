@@ -1,0 +1,6 @@
+# Physics-consistency diagnostics by technology. Cold Bias = weighted mean residual for HDD ≥ 6000 (as % of mean observed). Tail Bias = weighted mean residual for top 10% of observed energy (as % of mean). Negative bias = systematic underprediction. All metrics weighted by NWEIGHT, outer-fold predictions. NOTE: Low/negative wR² for electric groups reflects high noise in RECS end-use estimates and low within-group variance; correlation (r) may still indicate predictive signal.
+Technology,n,Pop Share (%),Mean HDD,Target SD (kBTU),Target CV (%),Weighted r,Overall Bias (%),n_cold (HDD≥6k),Cold Bias (%),n_tail (top 10%),Tail Bias (%),Non-Physical (%)
+Combustion,11852,63.3,4366.3,36203.0,76.5,0.644,-22.7,3393,-21.183533047169668,1186,-46.910491601876174,0.0
+Electric Heat Pump,2217,13.8,2518.9,12792.0,113.2,0.543,25.5,72,26.16459689198286,222,-30.219806942165345,0.0
+Electric Resistance,1376,9.1,3699.1,14630.0,127.0,0.563,22.0,277,26.959522009673137,138,-24.8410334294478,0.0
+Hybrid Ambiguous,2186,13.9,2949.5,15969.0,122.5,0.475,10.1,258,23.917326667587872,219,-44.01271819080213,0.0

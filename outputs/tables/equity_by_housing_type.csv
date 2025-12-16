@@ -1,0 +1,7 @@
+# Bias = weighted mean(Ŷ − Y). nMAE = MAE / mean(Y) × 100. All metrics computed on outer-fold predictions with NWEIGHT.
+Group,n,Mean Observed (kBTU),Bias (kBTU),MAE (kBTU),Bias (%),nMAE (%)
+Mobile home,937,22410,-3996,10714,-17.8,47.8
+Single-family detached,11872,44007,-9915,19377,-22.5,44.0
+Single-family attached,1662,31467,-4635,13472,-14.7,42.8
+Apartment (2-4 units),949,22593,-3006,10866,-13.3,48.1
+Apartment (5+ units),2211,9136,5984,7624,65.5,83.4

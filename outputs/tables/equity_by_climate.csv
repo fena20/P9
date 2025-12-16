@@ -1,0 +1,7 @@
+# Bias = weighted mean(Ŷ − Y). nMAE = MAE / mean(Y) × 100. All metrics computed on outer-fold predictions with NWEIGHT.
+Group,n,Mean Observed (kBTU),Bias (kBTU),MAE (kBTU),Bias (%),nMAE (%)
+Very Mild (<2k),3061,10852,-1963,5925,-18.1,54.6
+Mild (2-4k),3972,25628,-4393,12865,-17.1,50.2
+Moderate (4-6k),6598,44706,-7512,20282,-16.8,45.4
+Cold (6-8k),3124,58246,-10697,24407,-18.4,41.9
+Very Cold (>8k),876,63977,-12619,29116,-19.7,45.5

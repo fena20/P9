@@ -1,0 +1,668 @@
+# Answers to 195 Defense Questions for Residential Heating Demand Modeling Project
+# RECS 2020 Heating Demand Modeling Framework
+# Date: December 2024
+
+================================================================================
+SECTION A: Basic Questions (Problem Understanding and Scope)
+================================================================================
+
+Q1: What exactly is your problem and why is it important for energy/policy?
+A: The problem is predicting residential space heating energy consumption using RECS 2020 survey data. Policy importance: Retrofit and energy subsidy programs need accurate identification of high-consumption households. If the model has systematic bias (e.g., underprediction in cold climates), truly needy households may be missed from targeting.
+
+Q2: What is the final output: prediction model? evaluation framework? targeting tool? or all three?
+A: All three. (1) Technology-split prediction models with physics constraints, (2) Evaluation framework with nested CV, weighted metrics, and jackknife uncertainty, (3) Policy targeting tool with weighted vs unweighted comparison and policy scores (high-use, high-intensity, excess-demand).
+
+Q3: Why RECS 2020 and not other years?
+A: RECS 2020 is the latest version with complete microdata. Previous versions (2015, 2009) are older and had lower heat pump shares. RECS 2020 is the first with substantial heat pump representation.
+
+Q4: If a reviewer says "2020 is an abnormal year," what is your response?
+A: Correct. We have included COVID indicators (TELLWORK, ATHOME) as controls. In sensitivity analysis, we show the effect of removing these variables. In limitations, we explicitly state: "Results reflect 2020 occupancy patterns; recalibration may be needed for post-pandemic applications."
+
+Q5: Is your goal to predict 2020 consumption or generalize to normal years?
+A: Primary goal is cross-sectional prediction in 2020 (which households are high-consuming). Generalization to other years requires stability testing which is beyond this paper's scope.
+
+Q6: What is the difference between "scientific model" and "policy model" in your work?
+A: Scientific model: best prediction (minimize RMSE). Policy model: best ranking for targeting (Top 10% should be correct). A model might have better RMSE but worse ranking.
+
+Q7: Why focus on residential space heating and not total building energy?
+A: (1) Space heating is the largest end-use in cold regions (~40-60% of consumption). (2) Policy retrofits (insulation, windows) directly affect heating. (3) RECS has separate end-use estimates.
+
+Q8: Which output is "main claim" and which is "supporting"?
+A: Main claim: H2 (weighting changes targeting composition). Supporting: H1 (split better than monolithic) and H3 (defensible uncertainty).
+
+Q9: How exactly have you operationalized "policy-oriented"?
+A: Through (1) defining policy scores (high-use, high-intensity, excess-demand), (2) comparing weighted vs unweighted targeting, (3) reporting composition shifts (who is missed from targeting), (4) equity audit (error in vulnerable groups).
+
+Q10: Why should this work be published in Applied Energy and not an ML journal?
+A: Because the main contribution is policy-oriented, not algorithmic. We don't have a new algorithm; we show how methodological decisions (weighting, technology stratification) change policy outcomes.
+
+================================================================================
+SECTION B: Hypotheses, Claims, and Testability
+================================================================================
+
+Q11: What exactly does H1 say and what is its success criterion?
+A: H1: Technology-split models have both higher accuracy (Δ wRMSE > 0) and better physics consistency (HDD sensitivity in correct direction) than monolithic. Criterion: Δ wRMSE with 95% CI that excludes zero.
+
+Q12: What exactly does H2 say and what is its success criterion?
+A: H2: Using survey weights significantly changes the demographic composition of the target list (Top 10%). Criterion: Equal-budget Jaccard < 0.8 and significant composition shift in at least one dimension (income, geography, climate).
+
+Q13: What exactly does H3 say and what is its success criterion?
+A: H3: Nested CV + replicate weights produces defensible uncertainty. Criterion: CIs have reasonable coverage and refit-sensitivity gap is small (metric-only jackknife is sufficient).
+
+Q14: Were hypotheses pre-registered or adjusted after seeing results?
+A: Hypotheses were defined in the initial proposal. However, exact numerical criteria (e.g., Jaccard < 0.8) were adjusted after seeing data distribution. We explicitly state this in the text.
+
+Q15: If H1 improves but H2 doesn't change, what is your conclusion?
+A: We say technology stratification is useful for accuracy but neutral for policy. This is still a valid scientific result.
+
+Q16: If H2 changes but error gets worse, which do you prefer for policy?
+A: Depends on the size of the trade-off. If error slightly worsens but equity improves, it may be policy-preferable. This decision should be made with stakeholders.
+
+Q17: Are these three hypotheses independent or dependent?
+A: Somewhat dependent. H1 is a prerequisite for evaluating H2 (if the model is bad, targeting is meaningless). H3 applies to both.
+
+Q18: What results could falsify the hypotheses?
+A: H1 falsified: if Δ wRMSE ≤ 0 with CI including zero. H2 falsified: if Equal-budget Jaccard > 0.95. H3 falsified: if refit-sensitivity gap > 50% of metric-only SE.
+
+Q19: Are your "physics" criteria pre-defined?
+A: Yes. Criteria: (1) HDD sensitivity positive, (2) negative prediction rate < 1%, (3) cold-climate bias < 30%. These were in the initial proposal.
+
+Q20: At what level will your claims be in the paper?
+A: Association, not causation. We say "households with X characteristics are predicted to have higher demand," not "X causes higher demand."
+
+================================================================================
+SECTION C: RECS 2020 Data and Target Nature
+================================================================================
+
+Q21: What exactly is your target variable?
+A: TOTALBTUSPH - estimated space heating energy consumption in kBTU per year.
+
+Q22: What is the target unit and why did you choose it?
+A: kBTU (thousand BTU). Because it's RECS standard and compatible with US policy.
+
+Q23: Is your target "metered" or "estimated end-use"?
+A: Estimated end-use. EIA uses a combination of survey + supplier data + allocation models. Implication: higher noise and ceiling on achievable R².
+
+Q24: How is space heating produced in RECS 2020?
+A: EIA uses end-use allocation methods including regression models, supplier data, and survey information. This is an estimate, not direct measurement.
+
+Q25: Does your target combine different fuels in one number?
+A: Yes. TOTALBTUSPH is the sum of all fuels (gas, electric, oil, propane). Conversion to BTU enables this.
+
+Q26: How heavy-tail is the target distribution?
+A: Very heavy-tail. CV ≈ 76-127% depending on technology. Top 10% accounts for about 35% of total consumption.
+
+Q27: Do you have zero or negative values in the target?
+A: Values near zero yes (warm homes or no-heating). Negative no. Zeros are separated in the "no_heating" group.
+
+Q28: What did you do with outliers?
+A: Did not remove them. Used Tweedie objective which is robust to tails. In analysis, we separately report tail bias.
+
+Q29: What fraction of data was removed?
+A: About 2% (no_heating group and missing in key variables). Representativeness is maintained through weights.
+
+Q30: What is the expected upper bound for R²?
+A: Given end-use estimation noise, about 0.5-0.6 is realistic. We have wR² ≈ 0.47 which is within this range.
+
+================================================================================
+SECTION D: Survey Weighting and Replicate Weights
+================================================================================
+
+Q31: What exactly is NWEIGHT?
+A: Final survey weight that expands each sample household to the population. Includes adjustments for non-response and post-stratification.
+
+Q32: What type are replicate weights?
+A: RECS uses jackknife (successive difference replication). 60 replicate weights for variance estimation.
+
+Q33: What is the difference between "design-based" and "model-based" inference in your project?
+A: Design-based: uncertainty comes from sampling (replicate weights). Model-based: uncertainty comes from the model (cross-validation). We combine both.
+
+Q34: Where did you use weights?
+A: All three: training (sample_weight in LightGBM), evaluation (weighted metrics), and targeting (weighted percentiles).
+
+Q35: If you only weight in evaluation, what changes?
+A: Metrics become population-representative but model is optimized on unweighted sample. Under-sampled groups may be underfitted.
+
+Q36: If you only weight in training, what changes?
+A: Model becomes population-oriented but evaluation remains sample-based. Performance may appear worse but actually be better.
+
+Q37: Why did you define "Top 10%" with weights for policy?
+A: Because policymakers care about 10% of population, not 10% of sample. If sampling is stratified, 10% sample ≠ 10% population.
+
+Q38: In equal-budget, why does weighting change the list?
+A: Because ranking changes. A household that is low-weight in sample may get higher rank when weighted (represents larger population).
+
+Q39: Are replicate weights valid on folded data?
+A: Approximately. Since folds are large (80% train), sampling structure is approximately preserved. This is an approximation we mention in text.
+
+Q40: Did you build cross-fitted predictions on the entire sample?
+A: Yes. Outer-fold predictions are produced once per observation (in the fold where it was test) and then replicate weights are applied to the whole.
+
+================================================================================
+SECTION E: Technology Grouping
+================================================================================
+
+Q41: Why is technology stratification necessary?
+A: Because the physical relationship between HDD and consumption differs by technology. Heat pump has variable COP; combustion has more stable efficiency.
+
+Q42: What are the exact assignment rules to groups?
+A: Based on EQUIPM (primary heating equipment): Codes 2,4,7,8,9 → Combustion; 5,11 → Heat Pump; 6,10 → Resistance; 3,12 → Hybrid; -2 → No Heating.
+
+Q43: If system and fuel are inconsistent, what do you do?
+A: Assign to Hybrid/Ambiguous. This group is for uncertain cases.
+
+Q44: Why did you separate the hybrid group?
+A: Because mixed systems (e.g., furnace+HP) have unpredictable behavior. Separation keeps main groups clean.
+
+Q45: What is the hybrid share?
+A: About 14% of population (2186 samples). Removing them creates bias, so we kept them.
+
+Q46: Why did you separate heat pump and resistance?
+A: Heat pump has COP > 1 (typically 2-4) so consumes less per kWh. Resistance has COP = 1. Relationship with HDD also differs.
+
+Q47: Is technology correlated with climate?
+A: Yes. Heat pump is more common in the south (low HDD). Combustion in the north. We managed this confounding through stratification.
+
+Q48: Doesn't technology stratification cause overfitting?
+A: Risk exists. Smallest group (Resistance) has 1376 samples which is sufficient. If smaller, we would pool.
+
+Q49: Did you train a separate model for each group?
+A: Yes. This is "technology-split." We also tested the alternative (one model with tech feature); split was better.
+
+Q50: If a group is very small, what do you do?
+A: Not needed in this project. If n < 500, we would do hierarchical pooling or merge with nearest group.
+
+================================================================================
+SECTION F: Features and COVID
+================================================================================
+
+Q51: What are key features for heating demand?
+A: HDD65, TOTSQFT_EN (area), YEARMADERANGE (vintage), ADQINSUL (insulation), NUMPEOPLE (occupancy), Division (geography).
+
+Q52: Which features are building-oriented?
+A: Building: Area, Vintage, Insulation, Windows, Housing Type. Behavior: Occupancy, WFH, Thermostat settings.
+
+Q53: How did you model COVID?
+A: With proxies: TELLWORK (telework frequency) and ATHOME (daytime at home). These capture COVID-era occupancy.
+
+Q54: Why is the HDD×WFH interaction meaningful?
+A: Because if someone is home more (WFH) and HDD is high, more heating is needed. This interaction is physics-motivated.
+
+Q55: If COVID variables have missing values, what do you do?
+A: Converted missing to separate category (LightGBM handles this). Missing rate is low (<5%).
+
+Q56: Does COVID cause indirect leakage?
+A: No. TELLWORK and ATHOME are from behavior before bill measurement (survey timing). This is exogenous.
+
+Q57: Did you include "income" as a feature?
+A: Yes (MONEYPY). Not using income also creates bias. We checked in equity audit that income doesn't cause disparate impact.
+
+Q58: Do retrofit variables have good quality?
+A: Medium. ADQINSUL is self-reported and may be noisy. YEARMADERANGE is a good proxy for envelope quality.
+
+Q59: How did you define "Area"?
+A: TOTSQFT_EN = total square footage of heated/cooled area. This is self-reported and has measurement error.
+
+Q60: How did you capture climate?
+A: Both HDD65 (continuous) and Census Division (categorical). HDD has physical effect; Division captures regional heterogeneity.
+
+================================================================================
+SECTION G: Leakage Questions
+================================================================================
+
+Q61: What is your definition of leakage?
+A: Any information that leaks from target or future to features. Example: using total energy expenditure that includes heating.
+
+Q62: Did you remove all cost/bill variables?
+A: Yes. DOLLARSPH, DOLLAREL, and all bill-related variables are blacklisted.
+
+Q63: If you have total home energy consumption, is it allowed?
+A: No. TOTALBTU includes heating and causes leakage. Removed.
+
+Q64: If you have "heater usage frequency," is it leakage?
+A: No, if it's from a survey question (reported behavior). But if from actual usage data, yes. RECS doesn't have the latter.
+
+Q65: Did you create derived variables after seeing the target?
+A: No. All features are from raw RECS variables. Binning was only for stratification (not as features).
+
+Q66: Is preprocessing inside the inner loop?
+A: Yes. FeatureBuilder.fit_transform is called on train of each fold. This is clear in the code.
+
+Q67: Did the calibrator learn on test data?
+A: No. IsotonicRegression is fit on training data of each fold and then transforms test.
+
+Q68: Did you have feature selection?
+A: No in main model. Features were selected from domain knowledge, not data-driven selection.
+
+Q69: Where were "HDD bins" for stratify extracted from?
+A: From all data before split. This is acceptable because HDD is exogenous (from climate data) not from target.
+
+Q70: How are you sure a household isn't in both train and test?
+A: Each DOEID is unique. Split is by observation and RECS has no household repetition.
+
+================================================================================
+SECTION H: Nested CV Questions
+================================================================================
+
+Q71: Why is Nested CV necessary?
+A: To prevent data leakage in hyperparameter tuning. Without it, performance on test is overestimated.
+
+Q72: Why were outer=5, inner=3 chosen?
+A: Trade-off between variance (more folds = less variance) and computation time. With ~18k samples, 5×3 is reasonable.
+
+Q73: What keys is stratify on?
+A: Division × Tech_Group × HDD_bin (3 bins). This ensures each fold represents all combinations.
+
+Q74: If a stratum becomes very small, what do you do?
+A: sklearn's StratifiedKFold handles this (at least one sample per fold). If n < 5, we merge.
+
+Q75: What is the hyperparameter selection criterion?
+A: wRMSE (weighted RMSE) because it's policy-relevant and compatible with target weighting.
+
+Q76: For heavy-tail, isn't MAE better?
+A: Possibly. Can test in sensitivity. RMSE is more common for point prediction.
+
+Q77: Did you use early stopping?
+A: Yes. LightGBM with early_stopping_rounds=50 on validation set.
+
+Q78: Are seeds fixed?
+A: Yes. random_state=42 everywhere. Reproducibility guaranteed.
+
+Q79: Are outer folds fixed or repeated?
+A: Fixed with seed. We didn't repeat but replicate weights capture variance.
+
+Q80: Are results sensitive to fold?
+A: Somewhat. SD across 5 folds for wRMSE is about 1000 kBTU. This is reported in CI.
+
+================================================================================
+SECTION I: Models and Physics Constraints
+================================================================================
+
+Q81: Why is LightGBM the main model?
+A: Fast, accurate, handles missing values, supports sample_weight, monotonic constraints, and diverse objective functions (Tweedie).
+
+Q82: Why did you include EBM?
+A: For interpretability. EBM shape functions show how each feature affects output. This enables "falsification" of physics.
+
+Q83: What exactly is your physics baseline?
+A: Ridge regression with features: HDD × Area and Area. This is the simplest physics-based model.
+
+Q84: Is baseline separate for each technology?
+A: Yes. Because HDD slope differs (heat pump consumes less per HDD than combustion).
+
+Q85: How did you ensure non-negativity?
+A: With Tweedie objective (power=1.5) which is inherently non-negative. After prediction, we also have a clamp to zero (safety check).
+
+Q86: If you have log-transform, how did you correct return bias?
+A: We didn't use log1p. Tweedie works directly on original scale.
+
+Q87: What features have monotonicity constraints?
+A: HDD (positive) and TOTSQFT_EN (positive). This is physics-motivated.
+
+Q88: Can monotonic constraint cause bias?
+A: If the real relationship is non-monotonic, yes. We checked in EBM that HDD and Area are approximately monotonic.
+
+Q89: What did ablation with/without constraint show?
+A: With constraint, physics plausibility is better (fewer wrong-direction HDD). RMSE slightly higher (~2%). Acceptable trade-off.
+
+Q90: Why did you exclude CatBoost?
+A: LightGBM was faster and had similar results. CatBoost is good for categoricals but we didn't have special ordinal handling.
+
+================================================================================
+SECTION J: Calibration and Tail
+================================================================================
+
+Q91: What data is the calibrator fit on?
+A: Training data of each fold. Specifically: after model fit, predictions on train are produced and isotonic is fit on (y_pred, y_true).
+
+Q92: Did you fit calibrator per-tech or global?
+A: Global in current implementation. Per-tech could be better but risks overfitting in small groups.
+
+Q93: Can isotonic overfit in tail?
+A: Possibly. Because tail has few samples. We used out_of_bounds='clip' for safe extrapolation.
+
+Q94: What is the effect of calibration on metrics?
+A: wBias improved (from -7100 to -5977). wRMSE changed little. Calibration slope went from 0.51 to ~0.70.
+
+Q95: What is the effect of calibration on policy?
+A: Ranking changes. Jaccard before/after calibration is about 0.85-0.90 (significant but not large change).
+
+Q96: After calibration, is cold bias still negative?
+A: Yes. -21% for HDD≥6k (improvement from -25% before calibration). Not fully resolved.
+
+Q97: What is tail bias after calibration?
+A: Combustion: -47% (was -55%). Improvement but still substantial. This is the main limitation.
+
+Q98: Did calibration create new physics violations?
+A: In our review, no. Isotonic is monotonic so it doesn't break ranking.
+
+Q99: If calibrator is removed, is H2 still valid?
+A: Yes. Equal-budget Jaccard without calibration is also 0.35-0.40. H2 message doesn't change.
+
+Q100: Why did you choose calibration as post-processing and not end-to-end loss?
+A: Implementation simplicity. End-to-end with quantile loss is possible but more complex with more hyperparameters.
+
+================================================================================
+SECTION K: Physics Audit
+================================================================================
+
+Q101: What is your numerical criterion for "wrong HDD sensitivity"?
+A: If in EBM or residual analysis, HDD slope is negative or correlation HDD-residual is strongly positive.
+
+Q102: Is HDD effect always positive in EBM?
+A: Approximately. In Combustion and Resistance, yes. In Heat Pump, it flattens at very high HDD (COP drop).
+
+Q103: How did you bin residual vs HDD?
+A: 5 bins: 0-2k, 2-4k, 4-6k, 6-8k, 8k+. This covers the full HDD range in the US.
+
+Q104: Is cold climate bias from misspecification or measurement error?
+A: Probably both. (1) Model underpredicts tail (misspecification). (2) RECS end-use noise is higher in cold.
+
+Q105: Is the insulation/vintage effect in EBM sensible?
+A: Yes. ADQINSUL="adequate" → less consumption. YEARMADE newer → less consumption. This is physics-consistent.
+
+Q106: Has interaction between HDD and area/insulation been examined?
+A: EBM inherently captures pairwise interactions. In LightGBM, also through tree splits.
+
+Q107: Does your model have "thermodynamic consistency"?
+A: Not in the strict sense (energy balance). Only "empirical plausibility" (correct direction of effects).
+
+Q108: Do you have negative predictions?
+A: With Tweedie, no. Negative prediction rate = 0%.
+
+Q109: In which groups is clamp to zero high?
+A: None. Tweedie is inherently non-negative.
+
+Q110: Do you overpredict in warm climates?
+A: Slightly. Bias in HDD<2k is about +5%. This is less than cold climate bias.
+
+================================================================================
+SECTION L: Metrics
+================================================================================
+
+Q111: Why are both wRMSE and wMAE needed?
+A: RMSE is more sensitive to outliers. MAE is more robust. If both improve, improvement is real.
+
+Q112: How did you define wR²?
+A: 1 - (Σw(y-ŷ)²) / (Σw(y-ȳ_w)²) where ȳ_w is the weighted mean.
+
+Q113: Do you report metrics on log scale?
+A: No. Because target is on original scale (kBTU) and policy needs interpretability.
+
+Q114: What are the definitions of policy scores?
+A: High-use: Ŷ. High-intensity: Ŷ/Area. Excess-demand: Ŷ - Ŷ_baseline.
+
+Q115: What is the baseline for excess demand?
+A: Simple Ridge regression (HDD×Area + Area). This estimates "expected" consumption.
+
+Q116: Why did you choose Jaccard?
+A: Standard measure of set overlap. Limitation: sensitive to set sizes.
+
+Q117: What is Dice's advantage?
+A: Less penalizing when one set is larger. Dice = 2J/(1+J) so not redundant with Jaccard.
+
+Q118: Why did you also report containment?
+A: Shows whether one list is a subset of the other. Containment=1 means fully contained.
+
+Q119: What is "Equal budget (fixed N)"?
+A: Both methods select the same number (N). N = count of weighted candidates. This is a "fair budget" comparison.
+
+Q120: Do you set thresholds on train?
+A: No, on all predictions (outer-fold). Because policymakers also decide on the entire population.
+
+================================================================================
+SECTION M: Uncertainty
+================================================================================
+
+Q121: What is the exact jackknife formula?
+A: Var(θ) = (n-1)/n × Σ(θᵢ - θ̄)² where n=60 and θᵢ is the metric with replicate i.
+
+Q122: How did you construct CI?
+A: Normal approx: θ ± 1.96×SE. For Jaccard which is bounded, clip to [0,1].
+
+Q123: Are Jaccard CIs symmetric?
+A: Approximately. Because SE is small and we're far from bounds.
+
+Q124: Are replicate weights valid for Jaccard?
+A: Yes with the assumption of smooth dependence on weights. This holds in most applications.
+
+Q125: Did you give uncertainty on composition shares?
+A: Not in current implementation. This can be added but is computation intensive.
+
+Q126: What doesn't metric-only jackknife cover?
+A: Uncertainty from model specification and hyperparameters. Only sampling uncertainty.
+
+Q127: How was refit-subset executed?
+A: 10 of 60 replicates, refit the model and compared metrics. Gap < 10% SE.
+
+Q128: Is the metric-only vs refit-subset difference large?
+A: No. Gap is about 5-8% SE. Metric-only is sufficient.
+
+Q129: Do you have uncertainty from split folds?
+A: Yes. SD across 5 folds is reported. This is model-based uncertainty.
+
+Q130: If reviewer says "fold-level CI is meaningless"?
+A: We say replicate-weight CI on full predictions is design-based and valid. Fold-level only shows variability.
+
+================================================================================
+SECTION N: Fairness / Error Equity
+================================================================================
+
+Q131: What index did you use to measure error equity?
+A: Bias (mean error), MAE, and nMAE (normalized MAE) by group.
+
+Q132: Did you report equity weighted?
+A: Yes. Weighted is more meaningful because it reflects each group's population.
+
+Q133: Which groups have the most underprediction?
+A: Cold climate (-20%), Single-family detached (-23%), Combustion (-23%). Implication: these groups may be missed from targeting.
+
+Q134: Is "excess demand" more equitable than "high use"?
+A: Excess demand is more equitable because it subtracts expected consumption. Large home in cold climate is expected to consume more.
+
+Q135: Does income as a feature make equity worse?
+A: It can. But in our review, bias across income groups is approximately equal.
+
+Q136: Does cold climate bias leave the poor behind?
+A: Possibly. Cold climates also have low-income population. This is discussed in limitations.
+
+Q137: Did calibration improve equity?
+A: Slightly. Cold climate bias went from -25% to -21%. Improvement but not sufficient.
+
+Q138: Do renters vs owners have different errors?
+A: Yes. Owned: bias=-8626, Rented: bias≈0. Owners are more underpredicted (larger homes).
+
+Q139: Do multi-unit buildings have systematic errors?
+A: Yes. Apartment 5+ units: bias=+5984 (overpredict). Probably due to shared heating.
+
+Q140: If reviewer says "model may under-target vulnerable"?
+A: We accept. Write in limitations. Suggest threshold adjustment if cold climate is priority.
+
+================================================================================
+SECTION O: Sensitivity and Robustness
+================================================================================
+
+Q141: If HDD<1000 is removed?
+A: wRMSE slightly improves (less noise in warm). But generalizability decreases.
+
+Q142: If hybrids are removed?
+A: H1 approximately constant. H2 Jaccard slightly higher (groups more homogeneous).
+
+Q143: If hybrids are assigned to nearest group?
+A: Noise added to combustion/heat pump. Performance may worsen.
+
+Q144: If COVID is removed?
+A: wRMSE about 2% worse. COVID has real effect.
+
+Q145: If only occupancy proxy is kept?
+A: Similar to removing COVID. Proxy (ATHOME) has effect but less than TELLWORK.
+
+Q146: If monotonic constraints are removed?
+A: More physics violations (some bins have negative HDD effect). RMSE slightly better (~1%).
+
+Q147: If loss is changed from RMSE to MAE?
+A: Tail improves (less penalizing outliers). But overall RMSE worsens.
+
+Q148: If target becomes E_heat/Area, how much does policy list change?
+A: Substantially. Jaccard between high-use and high-intensity is about 0.6. Lists are different.
+
+Q149: If baseline becomes simpler, what happens to excess demand?
+A: Excess demand = Ŷ - E[Y|HDD,Area] is more sensitive to baseline complexity. Simpler → more variance.
+
+Q150: If calibration is removed, how much does equal-budget Jaccard change?
+A: About 5% relative. From 0.36 to 0.34. Message remains constant.
+
+================================================================================
+SECTION P: EIA Verification
+================================================================================
+
+Q151: Which EIA statistics did you reproduce?
+A: Mean heating consumption by Census Division, by fuel type, by housing type. From Table CE3.1 RECS.
+
+Q152: How much is the difference from official table?
+A: < 2% for most cells. Some small subgroups have up to 5% difference.
+
+Q153: What is the cause of difference?
+A: (1) Our filters (removing no_heating). (2) Data version (final vs preliminary). (3) Variable definition.
+
+Q154: Why "verification" not "validation"?
+A: Verification = reproducing known results. Validation = comparing with external ground truth. We don't have the latter.
+
+Q155: Has verification been done for technology subgroups?
+A: Yes. Population shares by tech group match Table CE4.1.
+
+Q156: Did you record the data version?
+A: Yes. RECS 2020 Final Release (version 2023-03).
+
+Q157: Are results sensitive to data version?
+A: Preliminary vs final has minor differences (<1% in aggregates).
+
+Q158: Did you do weight trimming?
+A: No. Used original NWEIGHT. Trimming may be incompatible with EIA.
+
+Q159: Sanity check on sum of weights?
+A: Yes. Σ NWEIGHT ≈ 123 million which matches total US households.
+
+Q160: If reviewer says "can't trust without verification"?
+A: Verification table is in Appendix. Replication results match EIA to <2%.
+
+================================================================================
+SECTION Q: Implementation and Reproducibility
+================================================================================
+
+Q161: What is your pipeline from raw to results?
+A: run_analysis.py → load data → preprocess → feature build → nested CV → evaluate → save. All with seed=42.
+
+Q162: How is fold assignment stored?
+A: Stored in cv.fold_results_. Reproducible with same seed.
+
+Q163: What are library versions?
+A: requirements.txt includes: lightgbm>=4.0, scikit-learn>=1.3, pandas>=2.0, numpy>=1.24.
+
+Q164: How long is nested CV runtime?
+A: About 4 minutes (5×3 = 15 inner fits + 5 final fits per model). Bottleneck: hyperparameter search.
+
+Q165: Do results change with different seed?
+A: Slightly. SD across 5 different seeds < 5% of metric value.
+
+Q166: Is preprocessing deterministic?
+A: Yes. No random operations in preprocessing.
+
+Q167: Are calibrator and model both inside the loop correctly?
+A: Yes. In code: model.fit → isotonic.fit → predictions. All in loop.
+
+Q168: Do outputs have standard naming?
+A: Yes. table1_*, table2_*, fig1_*, etc.
+
+Q169: Where is "researcher degrees of freedom"?
+A: (1) Hyperparameter grid choice, (2) HDD bin definition, (3) Baseline formula choice. These are tested in sensitivity.
+
+Q170: What files are needed for replication?
+A: (1) RECS 2020 microdata CSV, (2) src/ folder, (3) requirements.txt, (4) run_analysis.py.
+
+================================================================================
+SECTION R: Paper Writing
+================================================================================
+
+Q171: Contribution in one sentence?
+A: "We show that survey weighting substantially changes which households are identified as high-priority retrofit targets."
+
+Q172: Novelty compared to previous work?
+A: (1) Technology-split with physics constraints on survey data, (2) Systematic weighted vs unweighted policy comparison, (3) Replicate-weight uncertainty for policy metrics.
+
+Q173: What is the biggest limitation?
+A: Tail underprediction (especially in cold climate). We explicitly state this and suggest threshold adjustment for applications.
+
+Q174: What is the policy message?
+A: "Programs should use population-weighted targeting; otherwise, some underrepresented but high-need groups may be systematically missed."
+
+Q175: p-value in H1 isn't significant, how do you explain?
+A: We don't use p-value. We use effect size and consistency (4/5 folds better) and replicate-weight CI which excludes zero.
+
+Q176: Paper keywords?
+A: Residential heating; Energy modeling; Survey data; Policy targeting; Machine learning; RECS.
+
+Q177: How do you write the abstract?
+A: Problem → Method summary → Main finding (H2: weighting changes targeting by X%) → Implication.
+
+Q178: Which figure is critical?
+A: Fig3 (Composition Shift) - if removed, H2 cannot be proven.
+
+Q179: From which angle will the toughest reviewer attack?
+A: Probably: "2020 is not representative" or "end-use noise limits any conclusion." Response: COVID controls + explicit limitations.
+
+Q180: What is your answer to "So what?"
+A: "If retrofit programs use unweighted thresholds, they may systematically miss certain demographic groups, reducing program equity and efficiency."
+
+================================================================================
+SECTION S: Advanced and Tricky Questions
+================================================================================
+
+Q181: Design-based estimator for ΔJaccard without fold dependence?
+A: Yes. In table2c_h1_delta_ci.csv, this is done with replicate weights on full cross-fitted predictions.
+
+Q182: Is survey-weighted conformal prediction possible?
+A: Theoretically yes. Practically complex and limited literature. Beyond this paper's scope.
+
+Q183: If measurement error is dominant, isn't ranking better?
+A: Possibly. We report Jaccard which is ranking-based. For future work, we suggest quantile modeling.
+
+Q184: Did calibration break ranking?
+A: Isotonic is monotonic so ranking is preserved. Kendall tau before/after ≈ 0.99.
+
+Q185: Is hierarchical/partial pooling model possible?
+A: Yes with Bayesian methods. Could solve data scarcity in small groups. Future work.
+
+Q186: Is monotonicity violated in warm climates with intermittency?
+A: Possibly. In HDD<1k, heating may be sporadic. We used "soft" monotonicity (LightGBM constraint) which has some flexibility.
+
+Q187: Does choosing HDD over temperature cause special error structure?
+A: HDD linearizes but base temperature (65°F) may not be optimal for all homes. This is a limitation.
+
+Q188: Do technology and climate create endogeneity?
+A: Yes. Technology choice partly depends on climate. We don't have causal interpretation, only prediction.
+
+Q189: If budget is "households" not "population"?
+A: Then unweighted Top 10% is more correct. Definition depends on program design.
+
+Q190: Is Jaccard the best measure?
+A: Not necessarily. Utility-weighted overlap could be better if priority groups differ. This is an extension.
+
+Q191: Can "expected savings" be included without retrofit data?
+A: Not credibly. Excess-demand is a proxy but actual savings need counterfactual.
+
+Q192: If RECS end-use has systematic bias?
+A: Our conclusions are conditional: "given RECS estimates, ..." If RECS is biased, policy lists are also biased.
+
+Q193: Does cross-fitting with replicate in presence of nonlinear calibration have proper properties?
+A: This is an approximation. With large sample (18k), asymptotic properties approximately hold.
+
+Q194: Bound on best possible R² with noise?
+A: With reliability ratio ≈ 0.7 (estimate from literature), maximum achievable R² ≈ 0.7. We have 0.47 which is reasonable.
+
+Q195: If you can only keep 2 figures, which ones?
+A: (1) Fig3: Composition Shift (proves H2) and (2) Fig2: Pred vs Obs (proves model performance). These two cover "main claims."
+
+================================================================================
+END OF ANSWERS
+================================================================================

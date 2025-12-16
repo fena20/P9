@@ -1,0 +1,27 @@
+# Heating Demand Modeling Framework - RECS 2020
+# Python 3.8+
+
+# Core data processing
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Machine learning
+scikit-learn>=1.2.0
+lightgbm>=3.3.0
+interpret>=0.4.0  # EBM models
+
+# Statistical analysis
+scipy>=1.9.0
+statsmodels>=0.13.0
+
+# Visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+
+# Utilities
+tqdm>=4.64.0
+joblib>=1.2.0
+pyyaml>=6.0
+
+# Testing
+pytest>=7.0.0

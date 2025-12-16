@@ -1,0 +1,7 @@
+# Composition shift for excess_demand targeting by housing_type. Representation Ratio = Share among candidates / Population share.
+Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
+Mobile Home,937,5.6,7.8,7.5,0.3,14.1,1.41
+Single-Family Detached,11872,63.5,72.2,74.9,-2.7,11.4,1.14
+Single-Family Attached,1662,6.0,4.6,7.3,-2.7,7.6,0.76
+Apartment (2-4 units),949,7.5,4.6,2.7,2.0,6.2,0.62
+Apartment (5+ units),2211,17.5,10.7,7.6,3.2,6.2,0.62

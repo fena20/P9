@@ -1,0 +1,15 @@
+#  Jaccard/Dice CIs from replicate-weight jackknife.
+Metric,Value,Description
+Jaccard Index,0.891,Intersection / Union of candidate sets
+Dice Overlap,0.942,Dice coefficient: 2×|A∩B| / (|A|+|B|)
+Recall (Weighted→Unweighted),0.891,Fraction of weighted candidates also in unweighted
+Containment,1.000,"Intersection / min(|A|, |B|)"
+Only in Weighted,216 (10.9%),Candidates selected only with weights
+Only in Unweighted,0 (0.0%),Candidates selected only without weights
+Weighted Threshold,"14,460 kBTU",Weighted 90th percentile cutoff
+Unweighted Threshold,"16,115 kBTU",Unweighted 90th percentile cutoff
+--- Equal Budget (N fixed) ---,,Both methods select top 1980 candidates
+Jaccard (Equal Budget),0.596,Jaccard when both select same N candidates
+Dice (Equal Budget),0.747,Dice coefficient for equal-budget lists
+Jaccard Index (95% CI),"0.891 [0.855, 0.927]",Jaccard with replicate-weight 95% CI (SE=0.018)
+Dice Overlap (95% CI),"0.942 [0.922, 0.963]",Dice with replicate-weight 95% CI (SE=0.010)

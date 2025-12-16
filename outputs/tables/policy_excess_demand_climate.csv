@@ -1,0 +1,7 @@
+# Composition shift for excess_demand targeting by climate. Representation Ratio = Share among candidates / Population share.
+Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
+Cold (6-8k HDD),3125,13.1,14.4,18.7,-4.3,11.0,1.1
+Mild (2-4k HDD),3971,23.5,24.9,21.8,3.1,10.6,1.06
+Moderate (4-6k HDD),6597,38.3,51.7,48.1,3.5,13.5,1.35
+Very Cold (>8k HDD),872,1.6,2.0,6.7,-4.7,12.4,1.24
+Very Mild (<2k HDD),3066,23.5,7.0,4.7,2.3,3.0,0.3

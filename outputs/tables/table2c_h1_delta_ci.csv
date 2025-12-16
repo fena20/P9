@@ -1,0 +1,6 @@
+# H1 Test: Δ = Mono − Split (positive = Split better for RMSE/MAE/Bias). CI from replicate-weight jackknife (n=60) on full cross-fitted predictions. More robust than t-test on 5 folds.
+Metric,Estimate,SE,95% CI,Monolithic,Split
+Δ WRMSE,"+5,158",210,"[+4,747, +5,569]","30,355","25,197"
+Δ WMAE,"+3,323",118,"[+3,092, +3,555]","19,177","15,854"
+Δ WR2,+0.239,0.010,"[+0.220, +0.258]",0.230,0.470
+Δ WBIAS,"-5,418",131,"[-5,675, -5,161]","-11,395","-5,977"

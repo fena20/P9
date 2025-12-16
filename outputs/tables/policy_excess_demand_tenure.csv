@@ -1,0 +1,5 @@
+# Composition shift for excess_demand targeting by tenure. Representation Ratio = Share among candidates / Population share.
+Group,n,Population Share (%),Candidate Share (%),Unweighted Share (%),Difference (pp),Selection Rate (%),Repr. Ratio
+Owned,12944,68.2,78.1,81.6,-3.5,11.5,1.15
+Rented,4516,30.8,21.2,17.6,3.6,6.9,0.69
+Occupied w/o Payment,171,1.0,0.7,0.8,-0.1,7.3,0.73

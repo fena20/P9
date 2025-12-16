@@ -1,0 +1,9 @@
+# Policy metrics for top-10% targeting. 'True high' = weighted 90th percentile of observed consumption. Precision@k: fraction of predicted high that are truly high. Recall@k: fraction of truly high captured. Lift@k: improvement over random (Precision / base rate). 95% CIs from replicate-weight jackknife (n=60).
+Metric,Value,95% CI,Description
+Precision@10%,0.457,"[0.434, 0.480]","Of predicted top-10%, fraction truly high consumers"
+Recall@10%,0.464,"[0.422, 0.505]","Of true top-10%, fraction in predicted top-10%"
+F1@10%,0.460,"[0.431, 0.490]",Harmonic mean of Precision and Recall
+Jaccard@10%,0.299,"[0.274, 0.324]",Overlap between predicted and true top-10%
+Lift@10%,4.6×,"[4.3, 4.8]",Improvement over random selection
+NDCG,0.646,"[0.606, 0.685]",Ranking quality (1.0 = perfect)
+Top-10% Underprediction,-42.8%,"[-44.3, -41.4]",Bias in top decile (negative = underprediction)
