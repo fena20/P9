@@ -830,12 +830,13 @@ def save_results(df: pd.DataFrame,
             calib_df,
             str(tables_dir / 'table_calibration_comparison.csv'),
             "Calibration effect: Before = raw LightGBM (Tweedie), After = isotonic calibration. "
-            "Bias (%) = 100×(Ŷ−Y)/Ȳ_decile where Ȳ_decile is mean observed in each decile. "
+            "Bias (%) = 100×(Ŷ−Y)/Ȳ_decile where Ȳ_decile is weighted mean observed in each decile. "
             f"D1 (bottom decile) has high % bias because Ȳ≈{bottom_mean:,.0f} kBTU is small; "
             f"absolute bias is only {bottom_bias_after:,.0f} kBTU. "
-            "D10 (top decile) underprediction is the policy-relevant concern for retrofit targeting. "
-            "Calibration slope computed via weighted regression (NWEIGHT). "
-            "All metrics weighted by NWEIGHT (survey weights representing US household population)."
+            "D10 (top decile) underprediction is the policy-relevant concern. "
+            "Calibration slope via weighted OLS (NWEIGHT). "
+            "95% CI in figure: B=500 household-level bootstrap (RECS: 1 observation = 1 household), "
+            "resampling with replacement, weighted statistics in each replicate."
         )
         print("\nTable: Calibration Comparison (Before vs After Isotonic)")
         print(calib_df.to_string())

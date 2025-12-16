@@ -853,17 +853,25 @@ class HeatingDemandVisualizer:
             bias_pct_a = bias_a / mean_true * 100 if mean_true > 0 else 0
             
             # Bootstrap CI for bias percentage
-            n_bootstrap = 200
+            # Method: Weighted bootstrap at household level (RECS has 1 obs/household)
+            # - B = 500 replications
+            # - Each replication: resample households with replacement
+            # - Compute weighted bias using NWEIGHT in each replicate
+            # - 95% CI from percentiles (2.5%, 97.5%)
+            n_bootstrap = 500
+            np.random.seed(42 + d)  # Reproducible per decile
             bias_pct_b_boot = []
             bias_pct_a_boot = []
             
             for _ in range(n_bootstrap):
+                # Resample at household level (1 obs = 1 household in RECS)
                 boot_idx = np.random.choice(len(y), size=len(y), replace=True)
                 w_boot = w[boot_idx]
                 y_boot = y[boot_idx]
                 pred_b_boot = pred_b[boot_idx]
                 pred_a_boot = pred_a[boot_idx]
                 
+                # Weighted mean and bias in bootstrap sample
                 mean_true_boot = np.average(y_boot, weights=w_boot)
                 if mean_true_boot > 0:
                     bias_b_boot = np.average(pred_b_boot - y_boot, weights=w_boot)
@@ -871,7 +879,7 @@ class HeatingDemandVisualizer:
                     bias_pct_b_boot.append(bias_b_boot / mean_true_boot * 100)
                     bias_pct_a_boot.append(bias_a_boot / mean_true_boot * 100)
             
-            # 95% CI from bootstrap
+            # 95% CI from percentile method
             ci_b = (np.percentile(bias_pct_b_boot, 2.5), np.percentile(bias_pct_b_boot, 97.5))
             ci_a = (np.percentile(bias_pct_a_boot, 2.5), np.percentile(bias_pct_a_boot, 97.5))
             
@@ -961,7 +969,7 @@ class HeatingDemandVisualizer:
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
         ax.set_xlabel('Decile of Observed Consumption Y', fontsize=11)
         ax.set_ylabel('Bias (%) = 100×(Ŷ−Y)/Ȳ_decile', fontsize=11)
-        ax.set_title('(b) Weighted Bias by Decile (95% CI)', fontsize=12, fontweight='bold')
+        ax.set_title('(b) Weighted Bias by Decile\n(95% CI: B=500 weighted bootstrap)', fontsize=11, fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels([f'D{d}\n(n={n})' for d, n in zip(deciles, n_per_decile)], fontsize=8)
         ax.legend(loc='upper right', fontsize=9)
@@ -1038,11 +1046,17 @@ class HeatingDemandVisualizer:
         
         # Main title with formula explanation
         fig.suptitle(f'{title}\n'
-                    f'Bias (%) = 100×(Ŷ−Y)/Ȳ_decile | Regression weighted by NWEIGHT\n'
-                    f'Note: D1 has small Ȳ≈{true_means[0]/1000:.1f}k kBTU → high % bias; '
-                    f'D10 underprediction (−{abs(bias_pct_a[-1]):.0f}%) is policy-relevant', 
+                    f'Bias (%) = 100×(Ŷ−Y)/Ȳ_decile | All metrics weighted by NWEIGHT\n'
+                    f'95% CI: B=500 household-level bootstrap (RECS: 1 obs = 1 household)', 
                     fontsize=11, fontweight='bold')
-        plt.tight_layout(rect=[0, 0, 1, 0.90])
+        
+        # Add footnote about D1/D10
+        fig.text(0.5, 0.01, 
+                f'Note: D1 (Ȳ≈{true_means[0]/1000:.1f}k kBTU) has small denominator → high % bias; '
+                f'D10 underprediction (−{abs(bias_pct_a[-1]):.0f}%) is policy-relevant for retrofit targeting.',
+                ha='center', fontsize=9, style='italic')
+        
+        plt.tight_layout(rect=[0, 0.03, 1, 0.90])
         return fig
     
     def plot_ebm_shape_functions(self,
